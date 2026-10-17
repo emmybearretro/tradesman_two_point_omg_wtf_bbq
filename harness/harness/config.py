@@ -44,6 +44,7 @@ class ProviderCfg:
     max_retries: int = 2
     strict: bool = False          # reject models absent from /v1/models
     default: bool = False         # preferred target for bare model ids
+    schema_mode: str = "json_object"   # json_object | json_schema | prompt
     models: list[str] = field(default_factory=list)   # static hints, merged with discovery
     headers: dict = field(default_factory=dict)
     extra: dict = field(default_factory=dict)         # merged into every request body
@@ -96,10 +97,17 @@ class Config:
         return next(iter(self.providers))
 
 
+SCHEMA_MODES = ("json_object", "json_schema", "prompt")
+
+
 def _provider(name: str, tbl: dict) -> ProviderCfg:
     key = tbl.get("api_key")
     if not key and tbl.get("api_key_env"):
         key = os.environ.get(str(tbl["api_key_env"]))
+    mode = str(tbl.get("schema_mode", "json_object"))
+    if mode not in SCHEMA_MODES:
+        raise SystemExit(f"provider '{name}': schema_mode must be one of "
+                         f"{' | '.join(SCHEMA_MODES)}, got '{mode}'")
     return ProviderCfg(
         name=name,
         base_url=str(tbl["base_url"]).rstrip("/"),
@@ -108,6 +116,7 @@ def _provider(name: str, tbl: dict) -> ProviderCfg:
         max_retries=int(tbl.get("max_retries", 2)),
         strict=bool(tbl.get("strict", False)),
         default=bool(tbl.get("default", False)),
+        schema_mode=mode,
         models=[str(m) for m in tbl.get("models", [])],
         headers={str(k): str(v) for k, v in (tbl.get("headers") or {}).items()},
         extra=dict(tbl.get("extra") or {}),

@@ -22,10 +22,10 @@ Exit codes: `0` all ok, `1` any item failed, `2` usage/config error.
 
 ## Configure
 
-`config.toml` (searched as `./config.toml`, `./harness.toml`,
-`$HARNESS_CONFIG`, `$XDG_CONFIG_HOME/harness/config.toml`; `-c PATH` to
-override). `${VAR}` and `${VAR:-default}` expand from the environment, so keys
-never live in the file.
+`config.toml` (searched as `./config.toml`, `./.harness/config.toml`,
+`./harness.toml`, `./.config/harness/config.toml`; `$HARNESS_CONFIG` wins over
+the search list, `-c PATH` wins over both). `${VAR}` and `${VAR:-default}`
+expand from the environment, so keys never live in the file.
 
 ```toml
 [providers.ollama]
@@ -44,8 +44,9 @@ headers = { "x-trace" = "harness" }
 extra = { temperature = 0.2 }        # provider defaults, per-job params win
 ```
 
-Provider keys: `base_url` (required), `api_key`, `api_key_env`, `timeout` (120),
-`max_retries` (2), `strict` (false), `headers`, `extra`, `default`.
+Provider keys: `base_url` (required), `api_key`, `api_key_env`, `timeout` (180),
+`max_retries` (2), `strict` (false), `default` (false), `models` (static hints,
+merged with discovery), `headers`, `extra`.
 
 `strict = true` refuses ids the provider does not list — right for a gateway
 with a fixed serving list. Default `false` means an unlisted id is a real
@@ -67,11 +68,14 @@ its provider is strict and does not serve it, and the next target runs. A
 provider fault (429/5xx/timeout) is retried with backoff, then falls through.
 
 ```sh
-./harness.py models            # providers + served models, per provider
-./harness.py models --refresh  # force re-discovery (TTL 300s)
-./harness.py ping              # reachability + latency
+./harness.py models            # providers + served models (re-discovered)
+./harness.py models --json     # {providers: {name: [ids]}, errors: {}}
+./harness.py ping              # reachability per provider; exit 1 if any dead
 ./harness.py jobs              # resolved chain per job, with skip notes
+./harness.py pipelines         # stages and per-stage chains
 ```
+
+Discovery is cached for 30s inside a run; `models` and `ping` always re-probe.
 
 ## Jobs
 
@@ -92,12 +96,16 @@ schema = { type = "object", required = ["category"],
 `format = "json"` requests `response_format: json_object` and parses;
 `format = "schema"` sends the schema as `response_format: json_schema` and
 validates the reply locally (type/required/enum/items/const/min/max). A reply
-wrapped in prose or a ``` fence is extracted before parsing. Parse or schema
-failure is retried once on the next model in the chain.
+wrapped in prose or a ``` fence is extracted before parsing. A parse or schema
+failure falls through to the next model in the chain, like a provider fault.
+
+`json_schema` is sent with `strict: true`; endpoints that reject the shape
+return a 4xx, which falls through to the next model in the chain — so give
+schema jobs a `format = "json"` fallback target if the chain mixes providers.
 
 ```sh
 ./harness.py ask -j triage "crash on startup"
-./harness.py ask -m smart -p "hi" --stream
+./harness.py ask -m smart -f json "extract fields from this" --stream
 ./harness.py run triage -i items.jsonl -o out.jsonl -w 8
 ./harness.py run triage -p one -p two --json
 echo a b c | ./harness.py run summarize -i -
@@ -130,9 +138,10 @@ stage's model, latency, usage, and parsed value.
 
 ## Output
 
-`--json` emits one record per item: `ok`, `job`, `key`, `target`
-(`provider/model`), `tried`, `text`, `parsed`, `usage`, `latency`, `cached`,
-`attempts`, `error`. `--json` on `ask` prints a single record.
+`--json` emits one record per item: `job`, `index`, `key`, `ok`, `model`
+(`provider/model`, suffixed `(unlisted)` when the provider does not list it),
+`attempts`, `latency`, `cached`, `usage`, `error`, `text`, `parsed`. `run`
+writes the same records to the `-o` JSONL; `ask --json` prints one.
 
 ## Cache
 
@@ -146,6 +155,7 @@ changes. `--no-cache` bypasses; `cache = false` per job.
 python3 tests/run_tests.py
 ```
 
-68 tests against a local OpenAI-compatible stub: discovery, alias/fuzzy/strict
-resolution, key sending, retry/fallback, SSE streaming, JSON extraction, schema
-validation, cache invalidation, pipeline chaining, CLI exit codes.
+72 tests against a local OpenAI-compatible stub: discovery, static hints,
+alias/fuzzy/strict resolution, key sending, param precedence, retry/fallback,
+SSE streaming, JSON extraction, schema validation and structured-output
+requests, cache invalidation, pipeline chaining, stdin input, CLI exit codes.

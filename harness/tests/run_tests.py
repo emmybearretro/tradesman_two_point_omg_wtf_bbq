@@ -5,14 +5,17 @@ from __future__ import annotations
 import io
 import json
 import os
+import shlex
 import shutil
+import subprocess
 import sys
 import tempfile
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
 
 from harness.config import Config, JobCfg, ProviderCfg, expand, load  # noqa: E402
 from harness.pipeline import (Cache, Harness, JobError, Result,  # noqa: E402
@@ -124,6 +127,10 @@ base_url = "__BASE__"
 strict = true
 api_key = "sk-secret"
 
+[providers.hints]
+base_url = "__BASE__"
+models = ["declared-only"]
+
 [aliases]
 pair = ["stub/stub-a", "stub/stub-b"]
 cycle-a = ["cycle-b"]
@@ -202,6 +209,15 @@ class Discovery(Base):
         self.h.registry.refresh(ttl=0)
         self.assertEqual(self.h.registry.providers["stub"].listed,
                          ["stub-a", "stub-b", "stub-strict-only"])
+
+    def test_config_models_survive_discovery(self):
+        """Declared ids stay resolvable even when the endpoint omits them."""
+        self.h.registry.refresh(ttl=0)
+        listed = self.h.registry.providers["hints"].listed
+        self.assertIn("declared-only", listed)
+        self.assertIn("stub-a", listed)          # discovered ids kept too
+        target = self.h.registry.resolve(["hints/declared-only"])[0]
+        self.assertTrue(target.listed)
 
     def test_unreachable_provider_recorded(self):
         self.cfg.providers["dead"] = ProviderCfg(name="dead", base_url="http://127.0.0.1:1/v1")
@@ -561,6 +577,14 @@ class CLI(Base):
     def rows(self, path):
         with open(path) as f:
             return [json.loads(line) for line in f]
+
+    def test_broken_pipe_exits_quietly(self):
+        """`| head` must not print a traceback."""
+        cmd = [sys.executable, "-m", "harness", "-c", self.cfg.path, "jobs"]
+        proc = subprocess.run(" ".join(shlex.quote(a) for a in cmd) + " | head -1",
+                              shell=True, cwd=ROOT, capture_output=True, text=True)
+        self.assertNotIn("Traceback", proc.stderr)
+        self.assertIn("plain", proc.stdout)
 
     def test_models_exit_zero_when_all_reachable(self):
         self.assertEqual(self.run_cli(["-c", self.cfg.path, "models"]), 0)

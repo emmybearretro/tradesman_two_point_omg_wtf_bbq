@@ -194,19 +194,30 @@ class Harness:
         msgs.append({"role": "user", "content": prompt})
         return msgs
 
-    def _params(self, job: JobCfg) -> dict:
+    def _params(self, job: JobCfg, prov) -> dict:
+        """Sampling params plus the response_format shape this provider accepts."""
         params = dict(job.params)
         if job.format == "schema" and job.schema:
-            # Structured outputs where supported; _parse validates regardless.
-            params["response_format"] = {
-                "type": "json_schema",
-                "json_schema": {"name": _schema_name(job.name),
-                                "strict": True,
-                                "schema": job.schema},
-            }
+            if getattr(prov, "schema_mode", "json_object") == "json_schema":
+                params["response_format"] = {
+                    "type": "json_schema",
+                    "json_schema": {"name": _schema_name(job.name),
+                                    "strict": True,
+                                    "schema": job.schema},
+                }
+            else:
+                params["response_format"] = {"type": "json_object"}
         elif job.format == "json":
             params["response_format"] = {"type": "json_object"}
         return params
+
+    def _schema_hint(self, job: JobCfg, prov) -> str:
+        """Schema text for providers that cannot enforce one on the wire."""
+        if job.format == "schema" and job.schema and \
+                getattr(prov, "schema_mode", "json_object") == "prompt":
+            return ("\nReply with a single JSON object matching this schema, "
+                    "no prose:\n" + json.dumps(job.schema))
+        return ""
 
     def _parse(self, job: JobCfg, text: str):
         if job.format == "text":
@@ -227,7 +238,6 @@ class Harness:
 
         key = item.get("key") if isinstance(item, dict) else None
         msgs = self.messages(job, item)
-        params = self._params(job)
         spec = [model] if model else job.model
         try:
             chain = self.registry.resolve(spec)
@@ -235,8 +245,11 @@ class Harness:
             return Result(job=job_name, index=index, key=key, ok=False, error=str(e))
 
         cache_on = job.cache if use_cache is None else use_cache
+        # response_format shape varies per provider, so the key records the modes
+        modes = [self.registry.providers[t.provider].schema_mode for t in chain]
         payload = {"job": job_name, "model": [str(t) for t in chain], "messages": msgs,
-                   "params": params, "format": job.format, "schema": job.schema}
+                   "params": job.params, "format": job.format, "schema": job.schema,
+                   "modes": modes}
         ck = self.cache.key(payload)
         if cache_on:
             hit = self.cache.get(ck)
@@ -253,9 +266,11 @@ class Harness:
         for target in chain:
             prov = self.registry.providers[target.provider]
             tried.append(str(target))
+            hint = self._schema_hint(job, prov)
+            sent = msgs + [{"role": "system", "content": hint}] if hint else msgs
             try:
                 chat: ChatResult = prov.chat(
-                    msgs, target.model, params,
+                    sent, target.model, self._params(job, prov),
                     stream=stream and on_delta is not None, on_delta=on_delta)
             except ProviderError as e:
                 last_err = str(e)

@@ -40,7 +40,9 @@ class Registry:
             self.providers[name] = Provider(
                 name=name, base_url=p.base_url, api_key=p.api_key, timeout=p.timeout,
                 max_retries=p.max_retries, strict=p.strict, default=p.default,
-                headers=p.headers, extra=p.extra, listed=list(p.models))
+                schema_mode=p.schema_mode,
+                headers=p.headers, extra=p.extra,
+                listed=list(p.models), static=list(p.models))
         self.aliases = cfg.aliases
         self.errors: dict[str, str] = {}
 

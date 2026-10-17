@@ -42,9 +42,11 @@ class Provider:
     max_retries: int = 2
     strict: bool = False
     default: bool = False
+    schema_mode: str = "json_object"   # json_object | json_schema | prompt
     headers: dict = field(default_factory=dict)
     extra: dict = field(default_factory=dict)
     listed: list[str] = field(default_factory=list)
+    static: list[str] = field(default_factory=list)   # config `models`, always kept
     discovered_at: float = 0.0
 
     def url(self, path: str) -> str:
@@ -84,9 +86,10 @@ class Provider:
             mid = item.get("id") or item.get("model") or item.get("name")
             if mid:
                 ids.append(str(mid))
-        self.listed = ids
+        # Config-declared ids stay listed even when the endpoint omits them.
+        self.listed = ids + [m for m in self.static if m not in ids]
         self.discovered_at = time.time()
-        return ids
+        return self.listed
 
     def chat(self, messages: list[dict], model: str, params: dict | None = None,
              stream: bool = False, on_delta=None) -> ChatResult:

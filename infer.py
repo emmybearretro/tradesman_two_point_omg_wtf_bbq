@@ -41,8 +41,7 @@ def extract(pipe, image, use_cuda):
                return_tensors="pt", add_special_tokens=False)
     if use_cuda:
         enc = {k: v.cuda() for k, v in enc.items()}
-    out = m.generate(**enc, generation_config=gen, max_new_tokens=2048)
-    return proc.batch_decode(out, skip_special_tokens=True)[0]
+    out = m.generate(**enc, generation_config=gen)
 
 def main():
     ap = argparse.ArgumentParser()

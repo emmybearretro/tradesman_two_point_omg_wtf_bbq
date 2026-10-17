@@ -316,6 +316,13 @@ def main(argv=None) -> int:
     except JobError as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
+    except BrokenPipeError:
+        # Downstream closed the pipe (`| head`): exit quietly, no traceback.
+        try:
+            os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        except (OSError, ValueError):
+            pass
+        return 0
     except KeyboardInterrupt:
         print("interrupted", file=sys.stderr)
         return 130
