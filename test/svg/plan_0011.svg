@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1000">
+<rect width="1000" height="1000" fill="#fafafa"/>
+<rect x="0" y="0" width="289" height="744" fill="rgb(245,235,215)" stroke="black" stroke-width="6"/>
+<text x="20" y="372">MH 1.62x4.11 m</text>
+<rect x="289" y="0" width="711" height="744" fill="rgb(235,235,235)" stroke="black" stroke-width="6"/>
+<text x="309" y="372">OH</text>
+<rect x="0" y="744" width="289" height="256" fill="rgb(220,235,245)" stroke="black" stroke-width="6"/>
+<text x="20" y="872">K 1.62x1.43 m</text>
+<rect x="289" y="744" width="711" height="256" fill="rgb(245,225,210)" stroke="black" stroke-width="6"/>
+<text x="309" y="872">KPH 3.93x1.43 m</text>
+</svg>

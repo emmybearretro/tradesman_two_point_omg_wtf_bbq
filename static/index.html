@@ -23,10 +23,10 @@
   .choose { display: inline-block; padding: 0.75rem 1rem; border: 2px dashed #9aa5b1; border-radius: 8px; text-align: center; color: #5a6b7a; cursor: pointer; font-size: 0.95rem; }
   .choose:hover { border-color: #0066cc; color: #0066cc; background: #f0f6ff; }
   .choose:active { background: #e6f0ff; }
-  .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.75rem; }
-  .thumb { border-radius: 8px; overflow: hidden; background: #eef2f7; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; color: #6b7a8a; font-size: 0.8rem; }
-  .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .thumb video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.75rem; }
+  .thumb { border-radius: 8px; overflow: hidden; background: #eef2f7; min-height: 180px; display: flex; align-items: center; justify-content: center; color: #6b7a8a; font-size: 0.8rem; cursor: pointer; }
+  .thumb img { width: 100%; height: auto; max-height: 100%; object-fit: contain; display: block; }
+  .thumb video { width: 100%; height: auto; max-height: 100%; object-fit: contain; display: block; }
   .audio { width: 100%; border-radius: 8px; background: #eef2f7; padding: 0.5rem; display: flex; align-items: center; gap: 0.5rem; }
   .meta { font-size: 0.75rem; color: #6b7a8a; margin-top: 0.25rem; }
   .status { margin-top: 0.5rem; font-size: 0.9rem; color: #222; }
@@ -73,9 +73,7 @@ const gallery = document.getElementById("gallery");
 const uploadBtn = document.getElementById("uploadBtn");
 const photoInput = document.getElementById("photoInput");
 const voiceInput = document.getElementById("voiceInput");
-// explicit click handlers so the hidden input always activates (iOS + label for)
-document.getElementById("photoChoose").addEventListener("click", () => photoInput.click());
-document.getElementById("voiceChoose").addEventListener("click", () => voiceInput.click());
+// label 'for' attribute alone activates the input on iOS; no programmatic click() needed
 
 // show the laptop's real ip (server echoes it; fallback to 0.0.0.0)
 fetch("/files").then(r => r.json()).then(d => {
@@ -119,7 +117,7 @@ function renderGallery() {
       const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(f.name);
       const isAudio = /\.(mp3|m4a|wav|oga|caf|aac)$/i.test(f.name);
       if (isImage) {
-        el.innerHTML = `<img src="/uploads/${encodeURIComponent(f.name)}" alt="${f.name}">`;
+        el.innerHTML = `<a href="/uploads/${encodeURIComponent(f.name)}" target="_blank" rel="noopener"><img src="/uploads/${encodeURIComponent(f.name)}" alt="${f.name}"></a>`;
       } else if (isAudio) {
         el.innerHTML = `<audio controls src="/uploads/${encodeURIComponent(f.name)}"></audio>`;
       } else {
@@ -136,36 +134,16 @@ function renderGallery() {
   });
 }
 
-photoInput.addEventListener("change", async (e) => {
-  uploadBtn.disabled = false;
-  selected = [];
-  for (const f of e.target.files) {
-    await addPreview(f);
-  }
-  updateStatus(`Selected ${selected.length} file(s). Tap Upload Selected.`, true);
-  renderGallery();
-});
-
-voiceInput.addEventListener("change", async (e) => {
-  uploadBtn.disabled = false;
-  selected = [];
-  for (const f of e.target.files) {
-    await addPreview(f);
-  }
-  updateStatus(`Selected ${selected.length} voice file(s). Tap Upload Selected.`, true);
-  renderGallery();
-});
-
-uploadBtn.addEventListener("click", async () => {
-  if (selected.length === 0) {
-    updateStatus("Nothing selected yet.", false);
-    return;
+async function uploadFiles(files) {
+  if (!files || files.length === 0) {
+    updateStatus("Nothing to upload.", false);
+    return false;
   }
   uploadBtn.disabled = true;
   uploadBtn.textContent = "Uploading...";
   updateStatus("Uploading...", true);
   const fd = new FormData();
-  for (const s of selected) fd.append("file", s.file);
+  for (let i = 0; i < files.length; i++) fd.append("file", files[i]);
   try {
     const r = await fetch("/upload", { method: "POST", body: fd });
     const d = await r.json();
@@ -177,11 +155,52 @@ uploadBtn.addEventListener("click", async () => {
     photoInput.value = "";
     voiceInput.value = "";
     renderGallery();
+    return true;
   } catch (err) {
     updateStatus("Upload failed: " + err, false);
     uploadBtn.disabled = false;
     uploadBtn.textContent = "Upload Selected";
+    return false;
   }
+}
+
+photoInput.addEventListener("change", async (e) => {
+  try {
+    selected = [];
+    for (const f of e.target.files) {
+      try { await addPreview(f); } catch {} // preview is optional; never blocks upload
+    }
+    updateStatus(`Selected ${selected.length} file(s). Uploading...`, true);
+    await uploadFiles(e.target.files);
+  } catch (err) {
+    updateStatus("Error: " + err, false);
+  }
+});
+
+voiceInput.addEventListener("change", async (e) => {
+  try {
+    selected = [];
+    for (const f of e.target.files) {
+      try { await addPreview(f); } catch {} // preview is optional; never blocks upload
+    }
+    updateStatus(`Selected ${selected.length} voice file(s). Uploading...`, true);
+    await uploadFiles(e.target.files);
+  } catch (err) {
+    updateStatus("Error: " + err, false);
+  }
+});
+
+uploadBtn.addEventListener("click", () => {
+  // read current files directly from the inputs (robust even if change event
+  // didn't fire / didn't populate `selected`)
+  const files = [];
+  for (const f of photoInput.files) files.push(f);
+  for (const f of voiceInput.files) files.push(f);
+  if (files.length === 0) {
+    updateStatus("Nothing selected yet. Tap Take Photo / Record Voice first.", false);
+    return;
+  }
+  uploadFiles(files);
 });
 
 renderGallery();

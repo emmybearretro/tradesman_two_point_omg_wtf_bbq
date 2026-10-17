@@ -12,7 +12,7 @@ import torch
 from PIL import Image
 from lumber import estimate_house
 
-PROMPT = "</s><s><predict_bbox><predict_classes><output_markdown><predict_no_text_in_pic>"
+PROMPT = "</s><s><predict_bbox><predict_classes><output_markdown><predict_text_in_pic>"
 MAX_SIDE = 1536  # Parse likes <=1664; 1536 keeps 4GB headroom
 
 def load(ckpt, use_cuda):

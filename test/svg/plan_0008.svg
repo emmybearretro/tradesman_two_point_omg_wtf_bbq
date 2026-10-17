@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1000">
+<rect width="1000" height="1000" fill="#fafafa"/>
+<rect x="0" y="0" width="275" height="254" fill="rgb(255,214,214)" stroke="black" stroke-width="6"/>
+<text x="20" y="127">نوم ١.٥٢x١.٤٠ م</text>
+<rect x="275" y="0" width="194" height="254" fill="rgb(214,255,214)" stroke="black" stroke-width="6"/>
+<text x="295" y="127">معيشة ١.٠٧x١.٤٠ م</text>
+<rect x="469" y="0" width="531" height="254" fill="rgb(214,230,255)" stroke="black" stroke-width="6"/>
+<text x="489" y="127">مطبخ ٢.٩٦x١.٤٠ م</text>
+<rect x="0" y="254" width="275" height="746" fill="rgb(255,244,214)" stroke="black" stroke-width="6"/>
+<text x="20" y="627">حمام ١.٥٢x٤.١٥ م</text>
+<rect x="275" y="254" width="194" height="746" fill="rgb(255,214,214)" stroke="black" stroke-width="6"/>
+<text x="295" y="627">طرقة ١.٠٧x٤.١٥ م</text>
+<rect x="469" y="254" width="531" height="746" fill="rgb(214,255,214)" stroke="black" stroke-width="6"/>
+<text x="489" y="627">بلكونة ٢.٩٦x٤.١٥ م</text>
+</svg>

@@ -37,15 +37,17 @@ def detect(image, ckpt):
         ]
     m, proc, tok, gen = _pipe
     import torch
-    prompt = "</s><s><predict_bbox><predict_classes><output_markdown><predict_no_text_in_pic>"
+    from parse_out import parse
+    # prompt the checkpoint was trained with (text ON: room dimensions live there)
+    prompt = "</s><s><predict_bbox><predict_classes><output_markdown><predict_text_in_pic>"
     enc = proc(images=[image], text=prompt, return_tensors="pt",
                add_special_tokens=False).to("cuda")
     with torch.no_grad():
         out = m.generate(**enc, generation_config=gen)
-    txt = proc.batch_decode(out, skip_special_tokens=True)[0]
-    # TODO(hackathon): plug postprocessing.extract_classes_bboxes here; passthrough stub:
-    return [{"label": "Room", "room": txt[:24], "text": txt, "openings": 2,
-             "bbox": [50, 50, 950, 500]}]
+    txt = tok.decode(out[0], skip_special_tokens=False)
+    dets = parse(txt)
+    return dets or [{"label": "Room", "room": "no rooms found", "text": txt[:80],
+                     "openings": 2, "bbox": [50, 50, 950, 500]}]
 
 def run(image, ckpt=""):
     dets = detect(image, ckpt)

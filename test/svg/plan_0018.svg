@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1000">
+<rect width="1000" height="1000" fill="#fafafa"/>
+<rect x="0" y="0" width="540" height="295" fill="rgb(255,214,214)" stroke="black" stroke-width="6"/>
+<text x="20" y="147">बेडरूम 2.99x1.65 m</text>
+<rect x="540" y="0" width="460" height="295" fill="rgb(214,255,214)" stroke="black" stroke-width="6"/>
+<text x="560" y="147">लिविंग रूम 2.56x1.65 m</text>
+<rect x="0" y="295" width="540" height="217" fill="rgb(214,230,255)" stroke="black" stroke-width="6"/>
+<text x="20" y="403">रसोई 2.99x1.19 m</text>
+<rect x="540" y="295" width="460" height="217" fill="rgb(255,244,214)" stroke="black" stroke-width="6"/>
+<text x="560" y="403">बाथरूम 2.56x1.19 m</text>
+<rect x="0" y="512" width="540" height="488" fill="rgb(255,214,214)" stroke="black" stroke-width="6"/>
+<text x="20" y="756">गलियारा 2.99x2.71 m</text>
+<rect x="540" y="512" width="460" height="488" fill="rgb(214,255,214)" stroke="black" stroke-width="6"/>
+<text x="560" y="756">बालकनी 2.56x2.71 m</text>
+</svg>

@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+blueprints/all/
+synth/
+data/*.jsonl
+ckpt*/
+*.log
+.harness/
+.harness/cache/

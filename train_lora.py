@@ -12,24 +12,62 @@ from peft import LoraConfig, get_peft_model
 MODEL_ID = "nvidia/NVIDIA-Nemotron-Parse-2.0"
 NEW_TOKENS = ["<class_Wall>", "<class_Door>", "<class_Window>", "<class_Room>"]
 
-def rows_to_markdown(objects):
-    # Target format Parse postprocessing expects: class + bbox + text lines
+def _quant_tables(tok):
+    """index -> token string for the native coordinate tokens.
+
+    The model emits normalized coord TOKENS, not bracketed pixel numbers:
+    <x_0.3711><y_0.3539><x_0.625><y_0.6523><class_Picture>
+    x has 1024 bins (k/1024), y has 1280 bins (k/1280). Building the target in
+    this vocabulary is what makes earlier runs learnable at all -- the old
+    "Wall [0,0,271,250]: text" target was a format the model never produces.
+    """
+    vx, vy = {}, {}
+    for k in tok.get_vocab():
+        if k.startswith("<x_"):
+            vx[int(round(float(k[3:-1]) * 1024))] = k
+        elif k.startswith("<y_"):
+            vy[int(round(float(k[3:-1]) * 1280))] = k
+    return vx, vy
+
+
+def _qx(v, size, vx):
+    k = max(0, min(1023, int(round(float(v) / size * 1024))))
+    return vx.get(k, "<x_0.5>")
+
+
+def _qy(v, size, vy):
+    k = max(0, min(1279, int(round(float(v) / size * 1280))))
+    return vy.get(k, "<y_0.5>")
+
+
+def rows_to_markdown(objects, w, h, vx, vy):
+    # Native output format: four coord tokens then the class token, then text.
     lines = []
     for o in objects:
         x0, y0, x1, y1 = o["bbox"]
-        lines.append(f'{o["class"]} [{x0},{y0},{x1},{y1}]: {o["text"]}')
+        cls = o.get("class", "Room")
+        text = (o.get("text") or "").strip()
+        line = f"{_qx(x0, w, vx)}{_qy(y0, h, vy)}{_qx(x1, w, vx)}{_qy(y1, h, vy)}<class_{cls}>"
+        if text:
+            line += f" {text}"
+        lines.append(line)
     return "\n".join(lines)
 
 class ParseDS(torch.utils.data.Dataset):
     def __init__(self, path, processor, tokenizer, max_len=2048):
         self.rows = [json.loads(l) for l in open(path)]
         self.proc, self.tok, self.max_len = processor, tokenizer, max_len
+        self.vx, self.vy = _quant_tables(tokenizer)
     def __len__(self): return len(self.rows)
     def __getitem__(self, i):
         r = self.rows[i]
         img = Image.open(r["image"]).convert("RGB")
-        enc = self.proc(images=[img], text=r["prompt"], return_tensors="pt", add_special_tokens=False)
-        tgt = self.tok(rows_to_markdown(r["objects"]), return_tensors="pt",
+        w, h = img.size
+        # train text output too (room dims live there); data jsonl was built with
+        # <predict_no_text_in_pic>, which contradicts a text-bearing target
+        prompt = r["prompt"].replace("<predict_no_text_in_pic>", "<predict_text_in_pic>")
+        enc = self.proc(images=[img], text=prompt, return_tensors="pt", add_special_tokens=False)
+        tgt = self.tok(rows_to_markdown(r["objects"], w, h, self.vx, self.vy), return_tensors="pt",
                        max_length=self.max_len, truncation=True).input_ids[0]
         item = {k: v[0] for k, v in enc.items()}
         item["labels"] = tgt
