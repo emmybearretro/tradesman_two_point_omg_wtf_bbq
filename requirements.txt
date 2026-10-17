@@ -14,3 +14,6 @@ beautifulsoup4
 nemo_toolkit[asr]
 soundfile
 librosa
+# Local TTS (FastPitch+HifiGAN, CPU) + phone loop:
+nltk  # NeMo English G2P needs it; without it FastPitch load fails
+websockets  # Twilio Media Streams server (place_call.py itself is stdlib-only)
