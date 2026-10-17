@@ -1,0 +1,5 @@
+room,size,perim_ft,studs,plates,headers,cost
+Bedroom,12.5x14.5,54.0,56,21,2,316.0
+Kitchen,10.0x7.0,34.0,40,15,2,236.0
+Dining area,10.5x8.0,37.0,40,15,2,236.0
+Living area,21.0x11.5,65.0,64,27,2,365.6

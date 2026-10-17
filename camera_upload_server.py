@@ -96,7 +96,7 @@ def _enqueue(project):
 
 
 def _process_job(job):
-    """Process one job: STT for audio/video, OCR for images (results.py format).
+    """Process one job: STT for audio/video, OCR for images, text for PDFs.
 
     Audio/video (incl. .mov/.mp4 from iPhone) go through transcribe.py
     (nvidia/parakeet-tdt-0.6b-v2, GPU-venv subprocess, VRAM freed on exit).
@@ -126,6 +126,12 @@ def _process_job(job):
         ocrable = False
         ocr_file = None
         OCR_MODEL = ""
+    try:
+        from pdf import is_pdf, pdf_file
+        pdfable = is_pdf(name or path)
+    except ImportError:
+        pdfable = False
+        pdf_file = None
     if transcribable and path and os.path.exists(path):
         base, ext = os.path.splitext(path)
         if ext.lower() == ".wav" and any(
@@ -143,6 +149,9 @@ def _process_job(job):
         result = build_result(name, project, kind, STT_MODEL, text)
     elif ocrable and path and os.path.exists(path):
         result = ocr_file(path, project, name)
+        text = result["text"]
+    elif pdfable and path and os.path.exists(path):
+        result = pdf_file(path, project, name)
         text = result["text"]
     else:
         result = None
@@ -394,6 +403,10 @@ HTML = r"""<!DOCTYPE html>
     <label class="choose" id="voiceChoose" for="voiceInput">Record Voice</label>
     <input type="file" id="voiceInput" accept="audio/*" capture="microphone">
   </div>
+  <div class="input-wrap">
+    <label class="choose" id="libraryChoose" for="libraryInput">Choose from Library</label>
+    <input type="file" id="libraryInput" accept="image/*,video/*" multiple>
+  </div>
   <button class="btn primary" id="uploadBtn">Upload Selected</button>
   </div>
   <div class="status" id="status">Ready. Pick a file (camera opens on iPhone) then tap Upload Selected.</div>
@@ -418,6 +431,7 @@ const gallery = document.getElementById("gallery");
 const uploadBtn = document.getElementById("uploadBtn");
 const photoInput = document.getElementById("photoInput");
 const voiceInput = document.getElementById("voiceInput");
+const libraryInput = document.getElementById("libraryInput");
 // label 'for' attribute alone activates the input on iOS; no programmatic click() needed
 
 // show the laptop's real ip (server echoes it; fallback to 0.0.0.0)
@@ -578,14 +592,28 @@ voiceInput.addEventListener("change", async (e) => {
   }
 });
 
+libraryInput.addEventListener("change", async (e) => {
+  try {
+    selected = [];
+    for (const f of e.target.files) {
+      try { await addPreview(f); } catch {} // preview is optional; never blocks upload
+    }
+    updateStatus(`Selected ${selected.length} file(s) from library. Uploading...`, true);
+    await uploadFiles(e.target.files);
+  } catch (err) {
+    updateStatus("Error: " + err, false);
+  }
+});
+
 uploadBtn.addEventListener("click", () => {
   // read current files directly from the inputs (robust even if change event
   // didn't fire / didn't populate `selected`)
   const files = [];
   for (const f of photoInput.files) files.push(f);
   for (const f of voiceInput.files) files.push(f);
+  for (const f of libraryInput.files) files.push(f);
   if (files.length === 0) {
-    updateStatus("Nothing selected yet. Tap Take Photo / Record Voice first.", false);
+    updateStatus("Nothing selected yet. Tap Take Photo, Record Voice, or Choose from Library first.", false);
     return;
   }
   uploadFiles(files);

@@ -74,6 +74,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ckpt", required=True)
     ap.add_argument("--image", required=True)
+    ap.add_argument("--emit-json", default=None, metavar="PATH",
+                    help="machine-readable {text, detections, rows, total} for queue workers")
     ap.add_argument("--out", default="bom.csv")
     ap.add_argument("--cpu", action="store_true", help="force CPU (slow, any laptop)")
     ap.add_argument("--max-side", type=int, default=1536)
@@ -119,6 +121,11 @@ def main():
         w = csv.DictWriter(f, fieldnames=["room", "size", "perim_ft", "studs", "plates", "headers", "cost"])
         w.writeheader(); w.writerows(rows)
     print(f"{len(rows)} rooms -> {a.out} | Studs {tot['studs']} ${tot['cost']}")
+    if a.emit_json:
+        import json as _json
+        _json.dump({"text": text, "detections": dets, "rows": rows, "total": tot},
+                   open(a.emit_json, "w"))
+        print("wrote", a.emit_json)
 
 if __name__ == "__main__":
     main()

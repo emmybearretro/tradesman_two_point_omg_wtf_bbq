@@ -14,10 +14,82 @@ import os
 import subprocess
 
 MODEL_ID = "tesseract 5.5.3 (eng, psm 6)"
-
+VISION_MODEL_ID = "nemotron-parse-v2/ckpt-v3 (local GPU)"
 IMAGE_EXTS = {
     ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tif", ".tiff",
 }
+VISION_CKPTS = ("downloads/ckpt-v3-export", "downloads/ckpt-v2-export")
+STATES_DIRNAME = "states"
+
+def _app_dir():
+    return os.path.dirname(os.path.abspath(__file__))
+
+def _venv_python():
+    venv_py = os.path.join(_app_dir(), ".venv-gpu", "bin", "python")
+    if os.path.exists(venv_py):
+        return venv_py
+    import sys
+    return sys.executable
+
+def _ckpt_dir():
+    for c in VISION_CKPTS:
+        p = c if os.path.isabs(c) else os.path.join(_app_dir(), c)
+        if os.path.isdir(p):
+            return p
+    return None
+
+def _states_path(path):
+    import hashlib
+    with open(path, "rb") as fh:
+        key = hashlib.md5(fh.read()).hexdigest()
+    d = os.path.join(_app_dir(), STATES_DIRNAME)
+    os.makedirs(d, exist_ok=True)
+    return os.path.join(d, key + ".pt")
+
+def _infer_json(args, timeout):
+    import json as _json
+    cmd = [_venv_python(), os.path.join(_app_dir(), "infer.py")] + args
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    if r.returncode != 0:
+        raise RuntimeError(f"vision infer failed: {(r.stderr or '').strip()[-500:]}")
+    return r.stdout
+
+def vision_file(path, project="default", name=None):
+    """v3 vision: dump-then-decode (states cached by content hash) -> result dict."""
+    import json as _json
+    import tempfile
+    from results import build_result
+    ckpt = _ckpt_dir()
+    if ckpt is None:
+        raise RuntimeError("no vision checkpoint")
+    st = _states_path(path)
+    if not os.path.exists(st):
+        _infer_json(["--cpu", "--ckpt", ckpt, "--image", path,
+                     "--dump-enc", st], timeout=1500)
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tf:
+        out_json = tf.name
+    _infer_json(["--ckpt", ckpt, "--image", path, "--enc-states", st,
+                 "--emit-json", out_json, "--max-new-tokens", "512"], timeout=600)
+    with open(out_json, encoding="utf-8") as fh:
+        data = _json.load(fh)
+    os.unlink(out_json)
+    try:
+        from PIL import Image as _Image
+        w, h = _Image.open(path).size
+    except Exception:
+        w = h = None
+    lines = []
+    for d in data.get("detections", []):
+        b = d.get("bbox", [0, 0, 0, 0])
+        if w and h:
+            b = [b[0] / 1000 * w, b[1] / 1000 * h, b[2] / 1000 * w, b[3] / 1000 * h]
+        lines.append({"text": (d.get("room", "") + " " + d.get("dims", "")).strip(),
+                      "conf": 100.0, "box": [round(v, 1) for v in b]})
+    result = build_result(name or os.path.basename(path), project,
+                          "image", VISION_MODEL_ID, data.get("text", ""), lines)
+    result["bom_rows"] = data.get("rows", [])
+    result["bom_total"] = data.get("total", {})
+    return result
 
 
 def is_ocrable(name):
@@ -92,7 +164,12 @@ def _parse_tsv(tsv):
 
 
 def ocr_file(path, project="default", name=None, model_id=MODEL_ID):
-    """OCR one image -> result dict (results.py format, kind=image)."""
+    """Image -> result dict. v3 vision when a ckpt is present, else tesseract."""
+    if _ckpt_dir() is not None:
+        try:
+            return vision_file(path, project, name)
+        except Exception as e:
+            print(f"vision failed, tesseract fallback: {e}")
     from results import build_result
     text, lines = ocr(path, model_id)
     return build_result(name or os.path.basename(path), project,
