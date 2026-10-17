@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1000">
+<rect width="1000" height="1000" fill="#fafafa"/>
+<rect x="0" y="0" width="271" height="254" fill="rgb(255,214,214)" stroke="black" stroke-width="6"/>
+<text x="20" y="127">Bedroom 1.49x1.40 m</text>
+<rect x="271" y="0" width="364" height="254" fill="rgb(214,255,214)" stroke="black" stroke-width="6"/>
+<text x="291" y="127">Living 2.01x1.40 m</text>
+<rect x="635" y="0" width="365" height="254" fill="rgb(214,230,255)" stroke="black" stroke-width="6"/>
+<text x="655" y="127">Kitchen 2.01x1.40 m</text>
+<rect x="0" y="254" width="271" height="458" fill="rgb(255,244,214)" stroke="black" stroke-width="6"/>
+<text x="20" y="483">Bath 1.49x2.53 m</text>
+<rect x="271" y="254" width="364" height="458" fill="rgb(255,214,214)" stroke="black" stroke-width="6"/>
+<text x="291" y="483">Corridor 2.01x2.53 m</text>
+<rect x="635" y="254" width="365" height="458" fill="rgb(214,255,214)" stroke="black" stroke-width="6"/>
+<text x="655" y="483">Balcony 2.01x2.53 m</text>
+<rect x="0" y="712" width="271" height="288" fill="rgb(214,230,255)" stroke="black" stroke-width="6"/>
+<text x="20" y="856">Bedroom 1.49x1.58 m</text>
+<rect x="271" y="712" width="364" height="288" fill="rgb(255,244,214)" stroke="black" stroke-width="6"/>
+<text x="291" y="856">Living 2.01x1.58 m</text>
+<rect x="635" y="712" width="365" height="288" fill="rgb(255,214,214)" stroke="black" stroke-width="6"/>
+<text x="655" y="856">Kitchen 2.01x1.58 m</text>
+</svg>

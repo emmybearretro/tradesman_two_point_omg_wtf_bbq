@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1000">
+<rect width="1000" height="1000" fill="#fafafa"/>
+<rect x="0" y="0" width="859" height="599" fill="rgb(245,235,215)" stroke="black" stroke-width="6"/>
+<text x="20" y="299">Bedroom 4.75x3.32 m</text>
+<rect x="0" y="599" width="859" height="401" fill="rgb(235,235,235)" stroke="black" stroke-width="6"/>
+<text x="20" y="799">Living 4.75x2.23 m</text>
+</svg>

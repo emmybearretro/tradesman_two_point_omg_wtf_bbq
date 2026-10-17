@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1000">
+<rect width="1000" height="1000" fill="#fafafa"/>
+<rect x="0" y="0" width="302" height="707" fill="rgb(245,235,215)" stroke="black" stroke-width="6"/>
+<text x="20" y="353">Bedroom 5.5' x 12.9'</text>
+<rect x="326" y="0" width="674" height="707" fill="rgb(235,235,235)" stroke="black" stroke-width="6"/>
+<text x="346" y="353">Living 12.3x12.9</text>
+<rect x="0" y="707" width="302" height="293" fill="rgb(220,235,245)" stroke="black" stroke-width="6"/>
+<text x="20" y="853">Kitchen 5.5x5.3</text>
+<rect x="326" y="707" width="674" height="293" fill="rgb(245,225,210)" stroke="black" stroke-width="6"/>
+<text x="346" y="853">Bath 12.3x5.3</text>
+</svg>
