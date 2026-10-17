@@ -234,6 +234,9 @@ def main():
                 bx = [max(0, s0 - 3), max(0, coord - 3), min(W, s1 + 3), min(H, coord + 3)]
             if bx[2] - bx[0] < 2 or bx[3] - bx[1] < 2:
                 continue
+            if (orient == "v" and (coord <= 3 or coord >= W - 3)) or \
+               (orient == "h" and (coord <= 3 or coord >= H - 3)):
+                continue  # outer shell line: skip, keep interior walls
             d.rectangle(bx, fill=WALL)
             add_box(bx, "Wall")
 
