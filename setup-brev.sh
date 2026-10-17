@@ -5,6 +5,7 @@ set -e
 cd "$(dirname "$0")"
 
 echo "== pip =="; python3 -m ensurepip --default-pip >/dev/null 2>&1 || sudo apt-get install -y -qq python3-pip 2>&1 | tail -1 || true
+export PIP_BREAK_SYSTEM_PACKAGES=1  # Brev boxes: throwaway apt Python (PEP 668)
 echo "== GPU =="; nvidia-smi --query-gpu=name,memory.total --format=csv || true
 echo "== torch (cu128) =="
 python3 -m pip install -q torch torchvision --index-url https://download.pytorch.org/whl/cu128 2>&1 | tail -1 || true

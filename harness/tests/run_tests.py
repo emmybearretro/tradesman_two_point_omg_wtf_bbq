@@ -83,7 +83,8 @@ class Stub(BaseHTTPRequestHandler):
         else:
             model_out = model
 
-        if req.get("response_format", {}).get("type") == "json_object":
+        fmt = (req.get("response_format") or {}).get("type")
+        if fmt in ("json_object", "json_schema"):
             content = json.dumps({"category": "bug", "severity": "high", "echo": prompt})
         else:
             content = f"reply::{prompt}"
@@ -260,11 +261,16 @@ class Chat(Base):
         self.assertEqual(r.text, "reply::sys hello")
         self.assertEqual(r.target, "stub/stub-a")
 
-    def test_schema_job_sends_json_response_format(self):
+    def test_schema_job_sends_structured_output_request(self):
         r = self.h.run("typed", {"input": "boom"}, use_cache=False)
         self.assertTrue(r.ok, r.error)
         self.assertEqual(r.parsed["category"], "bug")
-        self.assertEqual(CALLS[-1]["response_format"], {"type": "json_object"})
+        fmt = CALLS[-1]["response_format"]
+        self.assertEqual(fmt["type"], "json_schema")
+        self.assertEqual(fmt["json_schema"]["name"], "typed")
+        self.assertTrue(fmt["json_schema"]["strict"])
+        self.assertEqual(fmt["json_schema"]["schema"]["required"],
+                         ["category", "severity"])
 
     def test_template_uses_item_fields(self):
         r = self.h.run("templated", {"field": "F", "input": "I"}, use_cache=False)
