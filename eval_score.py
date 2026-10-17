@@ -10,7 +10,7 @@ from PIL import Image
 from transformers import AutoModel, AutoProcessor, AutoTokenizer, GenerationConfig
 
 BASE = "nvidia/NVIDIA-Nemotron-Parse-2.0"
-NEW = ["<class_Wall>", "<class_Door>", "<class_Window>", "<class_Room>"]
+from classes import CLASS_TOKENS as NEW
 PROMPT = "</s><s><predict_bbox><predict_classes><output_markdown><predict_text_in_pic>"
 PAT = re.compile(r"<x_([\d.]+)><y_([\d.]+)><x_([\d.]+)><y_([\d.]+)>(?:<class_(\w+)>)?\s*([^\n<]*)")
 

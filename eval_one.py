@@ -28,7 +28,8 @@ def main():
     tok = AutoTokenizer.from_pretrained(BASE, trust_remote_code=True)
     # the fine-tune appended class tokens; the BASE tokenizer doesn't know them, so
     # decode() silently DROPS their ids (ids past the base vocab-end). Add them back.
-    tok.add_tokens(["<class_Wall>", "<class_Door>", "<class_Window>", "<class_Room>"])
+    from classes import CLASS_TOKENS
+    tok.add_tokens(CLASS_TOKENS)
     gen = GenerationConfig.from_pretrained(BASE, trust_remote_code=True)
     model = AutoModel.from_pretrained(src, trust_remote_code=True,
                                       torch_dtype=torch.bfloat16).cuda().eval()

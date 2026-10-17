@@ -12,7 +12,7 @@ from transformers import AutoModel, AutoProcessor, AutoTokenizer, GenerationConf
 from parse_out import parse
 
 BASE_ID = "nvidia/NVIDIA-Nemotron-Parse-2.0"
-NEW = ["<class_Wall>", "<class_Door>", "<class_Window>", "<class_Room>"]
+from classes import CLASS_TOKENS as NEW
 PROMPT = "</s><s><predict_bbox><predict_classes><output_markdown><predict_text_in_pic>"
 
 

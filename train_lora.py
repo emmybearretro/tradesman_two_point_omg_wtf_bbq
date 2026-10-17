@@ -10,7 +10,7 @@ from transformers import AutoModel, AutoProcessor, AutoTokenizer, TrainingArgume
 from peft import LoraConfig, get_peft_model
 
 MODEL_ID = "nvidia/NVIDIA-Nemotron-Parse-2.0"
-NEW_TOKENS = ["<class_Wall>", "<class_Door>", "<class_Window>", "<class_Room>"]
+from classes import CLASS_TOKENS as NEW_TOKENS  # order matters: matches ckpt
 
 def _quant_tables(tok):
     """index -> token string for the native coordinate tokens.

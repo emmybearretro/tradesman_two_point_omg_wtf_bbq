@@ -12,3 +12,6 @@ dist/
 downloads/
 uploads/
 states/
+.env
+quotes/
+synth_dim/

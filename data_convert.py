@@ -18,7 +18,7 @@ CLASS_MERGE = {
     "bedroom": "Room", "bathroom": "Room", "kitchen": "Room",
     "livingroom": "Room", "room": "Room",
 }
-KEEP = {"Wall", "Door", "Window", "Room"}
+KEEP = {"Wall", "Door", "Window", "Room", "Dimension"}
 
 def norm_box(xmin, ymin, xmax, ymax, w, h):
     # Parse expects 0-1000 normalized ints
