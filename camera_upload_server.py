@@ -12,7 +12,10 @@ Uploads land in ./uploads/ (the local harness). The server also lists and
 serves back anything already there.
 """
 import argparse
+import hashlib
+import json
 import os
+import subprocess
 import sys
 from datetime import datetime
 from uuid import uuid4
@@ -22,7 +25,173 @@ from werkzeug.utils import secure_filename
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(APP_DIR, "uploads")
+QUEUE_DIR = os.path.join(UPLOAD_DIR, ".queue")
+QUEUE_FILE = os.path.join(QUEUE_DIR, "jobs.jsonl")
+PROCESSED_DIR = os.path.join(UPLOAD_DIR, "processed")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(QUEUE_DIR, exist_ok=True)
+os.makedirs(PROCESSED_DIR, exist_ok=True)
+
+
+def _queue_read():
+    jobs = []
+    if not os.path.exists(QUEUE_FILE):
+        return jobs
+    with open(QUEUE_FILE, "r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                jobs.append(json.loads(line))
+            except Exception:
+                continue
+    return jobs
+
+
+def _queue_write(jobs):
+    tmp = QUEUE_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        for j in jobs:
+            fh.write(json.dumps(j) + "\n")
+    os.replace(tmp, QUEUE_FILE)
+
+
+def _job_id(project, name):
+    return hashlib.md5(f"{project}/{name}".encode()).hexdigest()
+
+
+def _already_queued(jobs, project, name):
+    return any(j.get("project") == project and j.get("name") == name for j in jobs)
+
+
+def _enqueue(project):
+    """Enqueue every file in uploads/<project> that isn't already queued."""
+    jobs = _queue_read()
+    project_dir = os.path.join(UPLOAD_DIR, project)
+    added = 0
+    if os.path.isdir(project_dir):
+        for root, dirs, files in os.walk(project_dir):
+            for fn in sorted(files):
+                path = os.path.join(root, fn)
+                rel = os.path.relpath(path, UPLOAD_DIR)
+                proj = rel.split(os.sep)[0] if os.sep in rel else ""
+                if proj != project:
+                    continue
+                if _already_queued(jobs, project, fn):
+                    continue
+                job = {
+                    "job_id": _job_id(project, fn),
+                    "project": project,
+                    "name": fn,
+                    "path": path,
+                    "url": f"/uploads/{rel}",
+                    "status": "pending",
+                    "queued_at": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+                }
+                jobs.append(job)
+                added += 1
+    _queue_write(jobs)
+    return added
+
+
+def _process_job(job):
+    """Process one job: STT for audio/video, OCR for images (results.py format).
+
+    Audio/video (incl. .mov/.mp4 from iPhone) go through transcribe.py
+    (nvidia/parakeet-tdt-0.6b-v2, GPU-venv subprocess, VRAM freed on exit).
+    Images go through ocr.py (tesseract placeholder until the vision
+    model is trained). Both write one `.result.json` sidecar next to the
+    source and attach it to the job dict. Derived .wav files from
+    _extract_audio are skipped (the source video job carries the result).
+    """
+    from results import build_result, result_url, save_result
+    log_path = os.path.join(QUEUE_DIR, "worker.log")
+    path = job.get("path", "")
+    name = job.get("name", "")
+    project = job.get("project", "")
+    text = ""
+    try:
+        from transcribe import (
+            MODEL_ID as STT_MODEL, is_transcribable, transcribe_file)
+        transcribable = is_transcribable(name or path)
+    except ImportError:
+        transcribable = False
+        transcribe_file = None
+        STT_MODEL = ""
+    try:
+        from ocr import MODEL_ID as OCR_MODEL, is_ocrable, ocr_file
+        ocrable = is_ocrable(name or path)
+    except ImportError:
+        ocrable = False
+        ocr_file = None
+        OCR_MODEL = ""
+    if transcribable and path and os.path.exists(path):
+        base, ext = os.path.splitext(path)
+        if ext.lower() == ".wav" and any(
+            os.path.exists(base + v) or os.path.exists(base + v.upper())
+            for v in VIDEO_EXTS
+        ):
+            line = f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} " \
+                f"[{job['job_id']}] {job['project']}/{job['name']} skipped (derived wav)\n"
+            with open(log_path, "a", encoding="utf-8") as fh:
+                fh.write(line)
+            job["skipped"] = "derived wav"
+            return True
+        text = transcribe_file(path)
+        kind = "video" if ext.lower() in VIDEO_EXTS else "audio"
+        result = build_result(name, project, kind, STT_MODEL, text)
+    elif ocrable and path and os.path.exists(path):
+        result = ocr_file(path, project, name)
+        text = result["text"]
+    else:
+        result = None
+    if result is not None:
+        job["result"] = result
+        job["text"] = text
+        job["result_path"] = save_result(path, result)
+        job["result_url"] = result_url(job.get("url", ""))
+    line = f"{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} " \
+        f"[{job['job_id']}] {job['project']}/{job['name']} -> {job['url']}"
+    if text:
+        line += f" text_chars={len(text)}"
+    line += "\n"
+    with open(log_path, "a", encoding="utf-8") as fh:
+        fh.write(line)
+    # Uncomment to relocate processed files:
+    # dest = os.path.join(PROCESSED_DIR, job["project"], job["name"])
+    # os.makedirs(os.path.dirname(dest), exist_ok=True)
+    # os.replace(job["path"], dest)
+    return True
+
+
+VIDEO_EXTS = (".mov", ".mp4", ".avi", ".mkv", ".webm", ".3gp", ".m4v")
+
+
+def _extract_audio(input_path):
+    """Extract the audio track from a video file to a WAV file alongside.
+
+    Returns the output path, or None if extraction failed (e.g. no audio
+    stream). The original file is left untouched.
+    """
+    base, _ext = os.path.splitext(input_path)
+    out_path = base + ".wav"
+    try:
+        subprocess.run(
+            [
+                "ffmpeg", "-y", "-i", input_path,
+                "-vn", "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "1",
+                out_path,
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
+            return out_path
+    except Exception:
+        pass
+    return None
 
 app = Flask(__name__, static_folder=os.path.join(APP_DIR, "static"))
 
@@ -50,27 +219,40 @@ def index():
 
 @app.route("/upload", methods=["POST"])
 def upload():
+    project = _safe_project(request.form.get("project"))
     files = request.files.getlist("file")
     if not files:
         return jsonify({"error": "no files"}), 400
+    subdir = os.path.join(UPLOAD_DIR, project)
+    os.makedirs(subdir, exist_ok=True)
     out = []
     for f in files:
         if f.filename == "":
             continue
         name = _safe_name(f.filename)
-        path = os.path.join(UPLOAD_DIR, name)
+        path = os.path.join(subdir, name)
         f.save(path)
+        audio_url = None
+        is_video = (f.content_type and f.content_type.startswith("video/")) or \
+                   name.lower().endswith(VIDEO_EXTS)
+        if is_video:
+            audio_path = _extract_audio(path)
+            if audio_path:
+                audio_name = os.path.basename(audio_path)
+                audio_url = f"/uploads/{project}/{audio_name}"
         out.append({
             "name": name,
+            "project": project,
             "original": f.filename,
-            "url": f"/uploads/{name}",
+            "url": f"/uploads/{project}/{name}",
+            "audio_url": audio_url,
             "size": os.path.getsize(path),
             "type": f.content_type or "application/octet-stream",
         })
     return jsonify({"uploads": out})
 
 
-@app.route("/uploads/<name>")
+@app.route("/uploads/<path:name>")
 def uploaded(name):
     return send_from_directory(UPLOAD_DIR, name, conditional=True)
 
@@ -78,17 +260,58 @@ def uploaded(name):
 @app.route("/files")
 def files():
     items = []
-    for name in sorted(os.listdir(UPLOAD_DIR)):
-        path = os.path.join(UPLOAD_DIR, name)
-        if not os.path.isfile(path):
-            continue
-        items.append({
-            "name": name,
-            "url": f"/uploads/{name}",
-            "size": os.path.getsize(path),
-            "modified": datetime.utcfromtimestamp(os.path.getmtime(path)).strftime("%Y-%m-%d %H:%M:%S"),
-        })
+    for root, dirs, filenames in os.walk(UPLOAD_DIR):
+        dirs.sort()
+        for fn in sorted(filenames):
+            path = os.path.join(root, fn)
+            rel = os.path.relpath(path, UPLOAD_DIR)
+            project = rel.split(os.sep)[0] if os.sep in rel else ""
+            items.append({
+                "name": fn,
+                "project": project,
+                "url": f"/uploads/{rel}",
+                "size": os.path.getsize(path),
+                "modified": datetime.utcfromtimestamp(os.path.getmtime(path)).strftime("%Y-%m-%d %H:%M:%S"),
+            })
     return jsonify({"files": items})
+
+
+@app.route("/queue", methods=["POST"])
+def queue():
+    project = _safe_project(request.form.get("project"))
+    added = _enqueue(project)
+    return jsonify({"project": project, "added": added})
+
+
+@app.route("/queue/status")
+def queue_status():
+    jobs = _queue_read()
+    stats = {"pending": 0, "processing": 0, "done": 0, "total": len(jobs)}
+    for j in jobs:
+        s = j.get("status", "pending")
+        stats[s] = stats.get(s, 0) + 1
+    return jsonify({"stats": stats, "jobs": jobs})
+
+
+@app.route("/queue/process", methods=["POST"])
+def queue_process():
+    """Process one pending job (used by the worker)."""
+    jobs = _queue_read()
+    progressed = False
+    for j in jobs:
+        if j.get("status") == "pending":
+            j["status"] = "processing"
+            _queue_write(jobs)
+            try:
+                _process_job(j)
+                j["status"] = "done"
+            except Exception as e:
+                j["status"] = "error"
+                j["error"] = str(e)
+            _queue_write(jobs)
+            progressed = True
+            break
+    return jsonify({"processed": progressed})
 
 
 def local_ips():
@@ -159,6 +382,10 @@ HTML = r"""<!DOCTYPE html>
 
 <div class="card">
   <div class="row">
+    <label style="margin-right:0.4rem;align-self:center;">Project</label>
+    <input type="text" id="projectInput" placeholder="default" value="default" style="flex:1;min-width:140px;padding:0.5rem 0.75rem;border:1px solid #ccc;border-radius:6px;font-size:0.9rem;">
+  </div>
+  <div class="row">
   <div class="input-wrap">
     <label class="choose" id="photoChoose" for="photoInput">Take Photo</label>
     <input type="file" id="photoInput" accept="image/*" capture="camera">
@@ -170,6 +397,10 @@ HTML = r"""<!DOCTYPE html>
   <button class="btn primary" id="uploadBtn">Upload Selected</button>
   </div>
   <div class="status" id="status">Ready. Pick a file (camera opens on iPhone) then tap Upload Selected.</div>
+  <div class="row" style="margin-top:0.6rem;">
+    <button class="btn secondary" id="queueBtn">Queue for Processing</button>
+    <span id="queueStatus" style="margin-left:0.6rem;font-size:0.85rem;color:#4b5563;">Queue empty.</span>
+  </div>
 </div>
 
 <div class="card">
@@ -239,7 +470,8 @@ function renderGallery() {
       }
       const meta = document.createElement("div");
       meta.className = "meta";
-      meta.textContent = `${f.name}  •  ${f.size} bytes`;
+      const proj = f.project ? ` [${f.project}]` : "";
+      meta.textContent = `${f.name}${proj}  •  ${f.size} bytes`;
       el.appendChild(meta);
       gallery.appendChild(el);
     }
@@ -257,6 +489,8 @@ async function uploadFiles(files) {
   uploadBtn.textContent = "Uploading...";
   updateStatus("Uploading...", true);
   const fd = new FormData();
+  const project = document.getElementById("projectInput").value.trim() || "default";
+  fd.append("project", project);
   for (let i = 0; i < files.length; i++) fd.append("file", files[i]);
   try {
     const r = await fetch("/upload", { method: "POST", body: fd });
@@ -275,6 +509,46 @@ async function uploadFiles(files) {
     uploadBtn.disabled = false;
     uploadBtn.textContent = "Upload Selected";
     return false;
+  }
+}
+
+async function queueForProcessing() {
+  const project = document.getElementById("projectInput").value.trim() || "default";
+  const btn = document.getElementById("queueBtn");
+  btn.disabled = true;
+  btn.textContent = "Queuing...";
+  try {
+    const fd = new FormData();
+    fd.append("project", project);
+    const r = await fetch("/queue", { method: "POST", body: fd });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "queue failed");
+    updateStatus(`Queued ${d.added} file(s) for processing (project: ${project}).`, true);
+    await refreshQueueStatus();
+  } catch (err) {
+    updateStatus("Queue failed: " + err, false);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Queue for Processing";
+  }
+}
+
+async function refreshQueueStatus() {
+  try {
+    const r = await fetch("/queue/status");
+    const d = await r.json();
+    const s = d.stats || {};
+    const total = s.total || 0;
+    const pending = s.pending || 0;
+    const done = s.done || 0;
+    const el = document.getElementById("queueStatus");
+    if (total === 0) {
+      el.textContent = "Queue empty.";
+    } else {
+      el.textContent = `Queued: ${total} (pending ${pending}, done ${done})`;
+    }
+  } catch (err) {
+    document.getElementById("queueStatus").textContent = "Queue status unavailable.";
   }
 }
 
@@ -317,7 +591,10 @@ uploadBtn.addEventListener("click", () => {
   uploadFiles(files);
 });
 
+queueBtn.addEventListener("click", queueForProcessing);
+
 renderGallery();
+refreshQueueStatus();
 </script>
 </body>
 </html>

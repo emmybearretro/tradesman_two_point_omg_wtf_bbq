@@ -45,6 +45,10 @@
 
 <div class="card">
   <div class="row">
+    <label style="margin-right:0.4rem;align-self:center;">Project</label>
+    <input type="text" id="projectInput" placeholder="default" value="default" style="flex:1;min-width:140px;padding:0.5rem 0.75rem;border:1px solid #ccc;border-radius:6px;font-size:0.9rem;">
+  </div>
+  <div class="row">
   <div class="input-wrap">
     <label class="choose" id="photoChoose" for="photoInput">Take Photo</label>
     <input type="file" id="photoInput" accept="image/*" capture="camera">
@@ -56,6 +60,10 @@
   <button class="btn primary" id="uploadBtn">Upload Selected</button>
   </div>
   <div class="status" id="status">Ready. Pick a file (camera opens on iPhone) then tap Upload Selected.</div>
+  <div class="row" style="margin-top:0.6rem;">
+    <button class="btn secondary" id="queueBtn">Queue for Processing</button>
+    <span id="queueStatus" style="margin-left:0.6rem;font-size:0.85rem;color:#4b5563;">Queue empty.</span>
+  </div>
 </div>
 
 <div class="card">
@@ -125,7 +133,8 @@ function renderGallery() {
       }
       const meta = document.createElement("div");
       meta.className = "meta";
-      meta.textContent = `${f.name}  •  ${f.size} bytes`;
+      const proj = f.project ? ` [${f.project}]` : "";
+      meta.textContent = `${f.name}${proj}  •  ${f.size} bytes`;
       el.appendChild(meta);
       gallery.appendChild(el);
     }
@@ -143,6 +152,8 @@ async function uploadFiles(files) {
   uploadBtn.textContent = "Uploading...";
   updateStatus("Uploading...", true);
   const fd = new FormData();
+  const project = document.getElementById("projectInput").value.trim() || "default";
+  fd.append("project", project);
   for (let i = 0; i < files.length; i++) fd.append("file", files[i]);
   try {
     const r = await fetch("/upload", { method: "POST", body: fd });
@@ -161,6 +172,46 @@ async function uploadFiles(files) {
     uploadBtn.disabled = false;
     uploadBtn.textContent = "Upload Selected";
     return false;
+  }
+}
+
+async function queueForProcessing() {
+  const project = document.getElementById("projectInput").value.trim() || "default";
+  const btn = document.getElementById("queueBtn");
+  btn.disabled = true;
+  btn.textContent = "Queuing...";
+  try {
+    const fd = new FormData();
+    fd.append("project", project);
+    const r = await fetch("/queue", { method: "POST", body: fd });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || "queue failed");
+    updateStatus(`Queued ${d.added} file(s) for processing (project: ${project}).`, true);
+    await refreshQueueStatus();
+  } catch (err) {
+    updateStatus("Queue failed: " + err, false);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Queue for Processing";
+  }
+}
+
+async function refreshQueueStatus() {
+  try {
+    const r = await fetch("/queue/status");
+    const d = await r.json();
+    const s = d.stats || {};
+    const total = s.total || 0;
+    const pending = s.pending || 0;
+    const done = s.done || 0;
+    const el = document.getElementById("queueStatus");
+    if (total === 0) {
+      el.textContent = "Queue empty.";
+    } else {
+      el.textContent = `Queued: ${total} (pending ${pending}, done ${done})`;
+    }
+  } catch (err) {
+    document.getElementById("queueStatus").textContent = "Queue status unavailable.";
   }
 }
 
@@ -203,7 +254,10 @@ uploadBtn.addEventListener("click", () => {
   uploadFiles(files);
 });
 
+queueBtn.addEventListener("click", queueForProcessing);
+
 renderGallery();
+refreshQueueStatus();
 </script>
 </body>
 </html>

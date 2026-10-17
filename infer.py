@@ -37,15 +37,37 @@ def unload(pipe, use_cuda):
         torch.cuda.empty_cache()  # model fully out; VRAM free for next swap
 
 @torch.inference_mode()
-def extract(pipe, image, use_cuda):
+def extract(pipe, image, use_cuda, max_side=1536, max_new_tokens=512, enc_states=None):
     m, proc, tok, gen = pipe
-    if max(image.size) > MAX_SIDE:
-        image.thumbnail((MAX_SIDE, MAX_SIDE))
+    if enc_states is not None:
+        # precomputed encoder states (see --dump-enc): decoder-only, fits any 4GB GPU
+        from transformers.modeling_outputs import BaseModelOutput
+        dec_in = {k: v.cuda() for k, v in enc_states.items() if k in ("input_ids", "attention_mask")}
+        out = m.generate(**dec_in, encoder_outputs=BaseModelOutput(
+            last_hidden_state=enc_states["hidden"].to(dtype=m.dtype).cuda()),
+            generation_config=gen, max_new_tokens=max_new_tokens)
+        return tok.decode(out[0], skip_special_tokens=False)
+    if max(image.size) > max_side:
+        image.thumbnail((max_side, max_side))
     enc = proc(images=[image.convert("RGB")], text=PROMPT,
                return_tensors="pt", add_special_tokens=False)
-    if use_cuda:
-        enc = {k: v.cuda() for k, v in enc.items()}
-    out = m.generate(**enc, generation_config=gen)
+    tiny_gpu = use_cuda and torch.cuda.get_device_properties(0).total_memory < 8e9
+    if tiny_gpu:
+        # 4GB cards (no flash/mem_efficient here): 13k-token encoder attention needs
+        # 10GB+ with the math backend. Run the encoder once on CPU, decode on GPU.
+        from transformers.modeling_outputs import BaseModelOutput
+        m.get_encoder().float().cpu()
+        torch.cuda.empty_cache()
+        eo = m.get_encoder()(pixel_values=enc["pixel_values"])
+        dec_in = {k: (v.cuda() if k != "pixel_values" else v) for k, v in enc.items()}
+        out = m.generate(**dec_in,
+                         encoder_outputs=BaseModelOutput(
+                             last_hidden_state=eo.last_hidden_state.cuda()),
+                         generation_config=gen, max_new_tokens=max_new_tokens)
+    else:
+        if use_cuda:
+            enc = {k: v.cuda() for k, v in enc.items()}
+        out = m.generate(**enc, generation_config=gen, max_new_tokens=max_new_tokens)
     return tok.decode(out[0], skip_special_tokens=False)
 
 def main():
@@ -54,13 +76,36 @@ def main():
     ap.add_argument("--image", required=True)
     ap.add_argument("--out", default="bom.csv")
     ap.add_argument("--cpu", action="store_true", help="force CPU (slow, any laptop)")
+    ap.add_argument("--max-side", type=int, default=1536)
+    ap.add_argument("--max-new-tokens", type=int, default=512)
+    ap.add_argument("--dump-enc", default=None, metavar="STATES.PT",
+                    help="CPU encoder once, save hidden states (slow, offline, run before demo)")
+    ap.add_argument("--enc-states", default=None, metavar="STATES.PT",
+                    help="skip encoder, GPU-decode from dumped states (fast, demo path)")
     a = ap.parse_args()
     use_cuda = torch.cuda.is_available() and not a.cpu
     print(f"device: {'cuda/fp16' if use_cuda else 'cpu/fp32'}")
 
     pipe = load(a.ckpt, use_cuda)          # model IN
+    if a.dump_enc:
+        m, proc, tok, gen = pipe
+        m.get_encoder().float().cpu()  # encoder lives on CPU for the dump
+        torch.cuda.empty_cache()
+        im = Image.open(a.image).convert("RGB")
+        if max(im.size) > a.max_side:
+            im.thumbnail((a.max_side, a.max_side))
+        enc = proc(images=[im], text=PROMPT, return_tensors="pt", add_special_tokens=False)
+        with torch.inference_mode():
+            eo = m.get_encoder()(pixel_values=enc["pixel_values"])
+        torch.save({"hidden": eo.last_hidden_state,
+                    "input_ids": enc["input_ids"],
+                    "attention_mask": enc.get("attention_mask")}, a.dump_enc)
+        print("dumped", a.dump_enc)
+        unload(pipe, use_cuda)
+        return
+    blob = torch.load(a.enc_states, map_location="cpu", weights_only=True) if a.enc_states else None
     try:
-        text = extract(pipe, Image.open(a.image), use_cuda)
+        text = extract(pipe, Image.open(a.image), use_cuda, a.max_side, a.max_new_tokens, blob)
     finally:
         unload(pipe, use_cuda)             # model OUT (swap)
     print("raw:", text[:300])
