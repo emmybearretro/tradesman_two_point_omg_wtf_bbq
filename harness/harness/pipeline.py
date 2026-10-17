@@ -198,7 +198,7 @@ class Harness:
         """Sampling params plus the response_format shape this provider accepts."""
         params = dict(job.params)
         if job.format == "schema" and job.schema:
-            if getattr(prov, "schema_mode", "json_object") == "json_schema":
+            if prov.schema_mode == "json_schema":
                 params["response_format"] = {
                     "type": "json_schema",
                     "json_schema": {"name": _schema_name(job.name),
@@ -213,8 +213,7 @@ class Harness:
 
     def _schema_hint(self, job: JobCfg, prov) -> str:
         """Schema text for providers that cannot enforce one on the wire."""
-        if job.format == "schema" and job.schema and \
-                getattr(prov, "schema_mode", "json_object") == "prompt":
+        if job.format == "schema" and job.schema and prov.schema_mode == "prompt":
             return ("\nReply with a single JSON object matching this schema, "
                     "no prose:\n" + json.dumps(job.schema))
         return ""

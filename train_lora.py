@@ -35,6 +35,21 @@ class ParseDS(torch.utils.data.Dataset):
         item["labels"] = tgt
         return item
 
+def make_collate(pad_id):
+    from torch.nn.utils.rnn import pad_sequence
+    def collate(batch):
+        out = {}
+        for k in batch[0].keys():
+            vals = [b[k] if torch.is_tensor(b[k]) else torch.tensor(b[k]) for b in batch]
+            if k in ("input_ids", "attention_mask", "labels"):
+                pv = pad_id if k in ("input_ids", "labels") else 0
+                out[k] = pad_sequence(vals, batch_first=True, padding_value=pv)
+            else:
+                out[k] = torch.stack(vals)
+        out["labels"][out["labels"] == pad_id] = -100
+        return out
+    return collate
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--train", required=True)
@@ -66,7 +81,8 @@ def main():
                              gradient_accumulation_steps=8, num_train_epochs=a.epochs,
                              learning_rate=a.lr, bf16=True, logging_steps=10,
                              save_steps=200, save_total_limit=2, remove_unused_columns=False)
-    Trainer(model, args, train_dataset=ds).train()
+    pad_id = tok.pad_token_id if tok.pad_token_id is not None else 0
+    Trainer(model, args, train_dataset=ds, data_collator=make_collate(pad_id)).train()
     model.save_pretrained(a.out)
     tok.save_pretrained(a.out)
     print(f"saved -> {a.out}")
