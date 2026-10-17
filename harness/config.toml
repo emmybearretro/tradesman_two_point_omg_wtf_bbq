@@ -61,3 +61,18 @@ system = "Extract fields as a JSON object."
 model = "smart"
 template = "Write a reply to: {input}"
 max_tokens = 800
+
+# ---- pipelines: stages chained per item, each stage picks its own model ---
+
+[pipelines.triage-then-summarize]
+stages = [
+  { job = "triage" },                        # stage 1 sees the raw item
+  { job = "summarize", input = "json" },     # stage 2 sees stage 1's JSON
+]
+
+[pipelines.extract-then-draft]
+fail_fast = true                             # stop the item after a bad stage
+stages = [
+  { job = "extract" },
+  { job = "draft", input = "field:body", keep = true },  # prefer item.body
+]

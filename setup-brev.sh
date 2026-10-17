@@ -4,11 +4,12 @@
 set -e
 cd "$(dirname "$0")"
 
+echo "== pip =="; python3 -m ensurepip --default-pip >/dev/null 2>&1 || sudo apt-get install -y -qq python3-pip 2>&1 | tail -1 || true
 echo "== GPU =="; nvidia-smi --query-gpu=name,memory.total --format=csv || true
 echo "== torch (cu128) =="
-pip install -q torch torchvision --index-url https://download.pytorch.org/whl/cu128 2>&1 | tail -1 || true
+python3 -m pip install -q torch torchvision --index-url https://download.pytorch.org/whl/cu128 2>&1 | tail -1 || true
 echo "== repo deps =="
-pip install -q -r requirements.txt 2>&1 | tail -2 || true
+python3 -m pip install -q -r requirements.txt 2>&1 | tail -2 || true
 echo "== model pre-download (persists on STOP, not delete) =="
 python3 - <<'PY'
 try:

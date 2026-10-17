@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import shutil
@@ -551,6 +552,10 @@ class CLI(Base):
         from harness.cli import main
         return main(argv)
 
+    def rows(self, path):
+        with open(path) as f:
+            return [json.loads(line) for line in f]
+
     def test_models_exit_zero_when_all_reachable(self):
         self.assertEqual(self.run_cli(["-c", self.cfg.path, "models"]), 0)
 
@@ -567,7 +572,7 @@ class CLI(Base):
         code = self.run_cli(["-c", self.cfg.path, "run", "plain", "-p", "one",
                              "-p", "two", "-o", out, "--no-cache", "-q"])
         self.assertEqual(code, 0)
-        rows = [json.loads(l) for l in open(out)]
+        rows = self.rows(out)
         self.assertEqual(len(rows), 2)
         self.assertTrue(all(r["ok"] for r in rows))
 
@@ -577,6 +582,32 @@ class CLI(Base):
                              "-o", out, "--no-cache", "-q"])
         self.assertEqual(code, 0)
         self.assertTrue(os.path.exists(out))
+
+    def test_run_reads_jsonl_from_stdin(self):
+        out = os.path.join(self.tmp, "stdin.jsonl")
+        payload = '{"key":"a","input":"one"}\n{"key":"b","input":"two"}\n'
+        real = sys.stdin
+        sys.stdin = io.StringIO(payload)
+        try:
+            code = self.run_cli(["-c", self.cfg.path, "run", "plain", "-i", "-",
+                                 "-o", out, "--no-cache", "-q"])
+        finally:
+            sys.stdin = real
+        self.assertEqual(code, 0)
+        rows = self.rows(out)
+        self.assertEqual(sorted(r["key"] for r in rows), ["a", "b"])
+
+    def test_run_reads_plain_lines_from_stdin(self):
+        out = os.path.join(self.tmp, "stdin2.jsonl")
+        real = sys.stdin
+        sys.stdin = io.StringIO("alpha\nbeta\n")
+        try:
+            code = self.run_cli(["-c", self.cfg.path, "run", "plain", "-i", "-",
+                                 "-o", out, "--no-cache", "-q"])
+        finally:
+            sys.stdin = real
+        self.assertEqual(code, 0)
+        self.assertEqual(len(self.rows(out)), 2)
 
     def test_run_exit_one_on_failure(self):
         out = os.path.join(self.tmp, "fail.jsonl")
@@ -602,7 +633,7 @@ class CLI(Base):
         code = self.run_cli(["-c", self.cfg.path, "pipe", "two-stage", "-i", items,
                              "-o", out, "--no-cache", "-q"])
         self.assertEqual(code, 0)
-        row = json.loads(open(out).read())
+        row = self.rows(out)[0]
         self.assertEqual([s["job"] for s in row["stages"]], ["typed", "plain"])
 
     def test_pipe_exit_one_on_failure(self):

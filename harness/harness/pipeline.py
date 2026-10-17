@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -13,7 +14,7 @@ from pathlib import Path
 
 from .config import Config, JobCfg
 from .provider import ChatResult, ProviderError
-from .registry import Registry, Target
+from .registry import Registry
 
 FENCE_RE = re.compile(r"```(?:json|JSON)?\s*(.*?)```", re.S)
 JSON_SPAN_RE = re.compile(r"[\{\[]", )
@@ -160,6 +161,11 @@ class Cache:
             pass
 
 
+def _schema_name(job_name: str) -> str:
+    """OpenAI-compatible response_format names: [a-zA-Z0-9_-], <= 64 chars."""
+    safe = re.sub(r"[^a-zA-Z0-9_-]", "_", job_name) or "job"
+    return safe[:64]
+
 # ---- harness -------------------------------------------------------------
 
 class Harness:
@@ -191,7 +197,13 @@ class Harness:
     def _params(self, job: JobCfg) -> dict:
         params = dict(job.params)
         if job.format == "schema" and job.schema:
-            params["response_format"] = {"type": "json_object"}
+            # Structured outputs where supported; _parse validates regardless.
+            params["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": _schema_name(job.name),
+                                "strict": True,
+                                "schema": job.schema},
+            }
         elif job.format == "json":
             params["response_format"] = {"type": "json_object"}
         return params
@@ -394,15 +406,24 @@ def _item_text(item) -> str:
 
 
 def load_items(path: str) -> list:
-    """Read job input: JSON array, JSONL, or one line per item."""
-    p = Path(path)
-    text = p.read_text("utf-8")
-    if p.suffix in (".jsonl", ".ndjson"):
-        return [json.loads(line) for line in text.splitlines() if line.strip()]
-    if p.suffix == ".json":
+    """Read job input: JSON array, JSONL, or one line per item. '-' is stdin."""
+    text = sys.stdin.read() if path == "-" else Path(path).read_text("utf-8")
+    if text.lstrip().startswith("["):
+        return json.loads(text)
+    lines = [line for line in text.splitlines() if line.strip()]
+    if path == "-":
+        # No suffix to trust: treat all-JSON lines as JSONL, else plain lines.
+        try:
+            return [json.loads(line) for line in lines]
+        except json.JSONDecodeError:
+            return lines
+    suffix = Path(path).suffix
+    if suffix in (".jsonl", ".ndjson"):
+        return [json.loads(line) for line in lines]
+    if suffix == ".json":
         data = json.loads(text)
         return data if isinstance(data, list) else [data]
-    return [line for line in text.splitlines() if line.strip()]
+    return lines
 
 
 def stamp() -> str:
