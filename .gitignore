@@ -7,3 +7,7 @@ ckpt*/
 *.log
 .harness/
 .harness/cache/
+# build outputs / local downloads: never in git (weights are 1.8GB; see PACKAGING.md)
+dist/
+downloads/
+uploads/

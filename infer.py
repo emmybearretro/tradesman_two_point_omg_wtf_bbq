@@ -46,6 +46,7 @@ def extract(pipe, image, use_cuda):
     if use_cuda:
         enc = {k: v.cuda() for k, v in enc.items()}
     out = m.generate(**enc, generation_config=gen)
+    return tok.decode(out[0], skip_special_tokens=False)
 
 def main():
     ap = argparse.ArgumentParser()
@@ -64,10 +65,10 @@ def main():
         unload(pipe, use_cuda)             # model OUT (swap)
     print("raw:", text[:300])
 
-    # v1: whole-image text -> one Room entry per dim pair found (see README: wire real boxes next)
-    import re
-    dets = [{"label": "Room", "room": t[:24], "text": t, "openings": 2}
-            for t in re.findall(r".{0,24}\d+\s*(?:'|ft|m)?\s*(?:x|×)\s*\d+.*", text)]
+    # real per-room boxes + dimension strings from the model's native token output
+    from parse_out import parse
+    dets = parse(text)
+    print(f"parsed {len(dets)} rooms")
     rows, tot = estimate_house(dets)
     with open(a.out, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=["room", "size", "perim_ft", "studs", "plates", "headers", "cost"])
