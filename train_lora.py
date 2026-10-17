@@ -58,6 +58,7 @@ def main():
     ap.add_argument("--lr", type=float, default=2e-4)
     ap.add_argument("--batch", type=int, default=2)
     ap.add_argument("--grad-ckpt", type=int, default=1)
+    ap.add_argument("--full", type=int, default=0, help="1: full fine-tune, skip PEFT (needs 40GB+ VRAM)")
     a = ap.parse_args()
 
     tok = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
@@ -73,8 +74,9 @@ def main():
     lora = LoraConfig(r=16, lora_alpha=32, lora_dropout=0.05,
                       target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
                       task_type="SEQ_2_SEQ_LM")
-    model = get_peft_model(model, lora)
-    model.print_trainable_parameters()
+    if not a.full:
+        model = get_peft_model(model, lora)
+        model.print_trainable_parameters()
 
     ds = ParseDS(a.train, proc, tok)
     args = TrainingArguments(a.out, per_device_train_batch_size=a.batch,
