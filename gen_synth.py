@@ -91,6 +91,39 @@ def fmt_dim(w, h, metric):
         return f"{w}' x {h}'"
     return f"{w}x{h}"
 
+
+def clamp_box(bx, W, H):
+    bx = [max(0, bx[0]), max(0, bx[1]), min(W, bx[2]), min(H, bx[3])]
+    return None if (bx[2] - bx[0] < 3 or bx[3] - bx[1] < 3) else bx
+
+
+def merge_spans(spans, gap=2):
+    """Merge collinear overlapping/adjacent (a, b) spans so a wall line is one box."""
+    out = []
+    for a, b in sorted(spans):
+        if out and a <= out[-1][1] + gap:
+            out[-1][1] = max(out[-1][1], b)
+        else:
+            out.append([a, b])
+    return out
+
+
+def wall_segments(xs, ys, rng):
+    """Unique wall segments for a grid: merged collinear spans, as (orient, coord, a, b)."""
+    vert, horiz = {}, {}
+    for r in range(len(ys) - 1):
+        for c in range(len(xs) - 1):
+            if xs[c + 1] - xs[c] < 150 or ys[r + 1] - ys[r] < 150:
+                continue
+            vert.setdefault(xs[c], []).append((ys[r], ys[r + 1]))
+            vert.setdefault(xs[c + 1], []).append((ys[r], ys[r + 1]))
+            horiz.setdefault(ys[r], []).append((xs[c], xs[c + 1]))
+            horiz.setdefault(ys[r + 1], []).append((xs[c], xs[c + 1]))
+    segs = [("v", x, a, b) for x, sp in vert.items() for a, b in merge_spans(list(sp))]
+    segs += [("h", y, a, b) for y, sp in horiz.items() for a, b in merge_spans(list(sp))]
+    rng.shuffle(segs)
+    return segs
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--n", type=int, default=200)
@@ -125,6 +158,7 @@ def main():
         svg = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}">',
                f'<rect width="{W}" height="{H}" fill="#fafafa"/>']
         boxes, ci = [], 0
+        doors, windows = [], []
         for r in range(rows_n):
             for c_ in range(cols):
                 x0, y0, x1, y1 = xs[c_], ys[r], xs[c_ + 1], ys[r + 1]
@@ -135,13 +169,20 @@ def main():
                 render_name = pack["rooms"][ri]
                 color = pal[ci % len(pal)]
                 ci += 1
-                d.rectangle([x0, y0, x1, y1], fill=color, outline=WALL, width=6)
+                d.rectangle([x0, y0, x1, y1], fill=color)  # walls drawn separately
                 side = rng.randrange(4)
                 if side in (0, 1):
                     dx, dy = rng.randint(x0 + 40, max(x0 + 41, x1 - 90)), y0 if side == 0 else y1
                 else:
                     dx, dy = (x0 if side == 2 else x1), rng.randint(y0 + 40, max(y0 + 41, y1 - 90))
-                d.arc([dx - 4, dy - 45, dx + 86, dy + 45], 0, 90, fill=WALL, width=3)
+                doors.append((side, dx, dy, color))
+                if rng.random() < 0.55:  # ~half the rooms get a window
+                    wside = rng.randrange(4)
+                    if wside in (0, 1):
+                        wx, wy = rng.randint(x0 + 40, max(x0 + 41, x1 - 70)), y0 if wside == 0 else y1
+                    else:
+                        wx, wy = (x0 if wside == 2 else x1), rng.randint(y0 + 40, max(y0 + 41, y1 - 70))
+                    windows.append((wside, wx, wy, color))
                 wft = round((x1 - x0) / 55, 1)
                 hft = round((y1 - y0) / 55, 1)
                 show = True if policy is True else (rng.random() < 0.6)
@@ -179,6 +220,53 @@ def main():
                         f'<text x="{x0+20}" y="{(y0+y1)//2}">{render_txt}</text>']
                 boxes.append({"x": x0 / 10, "y": y0 / 10, "w": (x1 - x0) / 10,
                               "h": (y1 - y0) / 10, "label": "Room", "text": truth_txt})
+
+        # --- walls / doors / windows drawn on top; boxes recorded exactly ---
+        def add_box(bx, label):
+            boxes.append({"x": bx[0] / 10, "y": bx[1] / 10,
+                          "w": (bx[2] - bx[0]) / 10, "h": (bx[3] - bx[1]) / 10,
+                          "label": label, "text": ""})
+
+        for orient, coord, s0, s1 in wall_segments(xs, ys, rng):
+            if orient == "v":
+                bx = [max(0, coord - 3), max(0, s0 - 3), min(W, coord + 3), min(H, s1 + 3)]
+            else:
+                bx = [max(0, s0 - 3), max(0, coord - 3), min(W, s1 + 3), min(H, coord + 3)]
+            if bx[2] - bx[0] < 2 or bx[3] - bx[1] < 2:
+                continue
+            d.rectangle(bx, fill=WALL)
+            add_box(bx, "Wall")
+
+        for side, dx, dy, color in doors:
+            if side in (0, 1):                      # door on a horizontal wall
+                gap = [dx, dy - 9, dx + 90, dy + 9]
+                arc = [dx, dy - 45, dx + 90, dy + 9]
+            else:                                   # door on a vertical wall
+                gap = [dx - 9, dy, dx + 9, dy + 90]
+                arc = [dx - 45, dy, dx + 9, dy + 90]
+            gap = clamp_box(gap, W, H) or gap
+            d.rectangle(gap, fill=color)            # opening in the wall
+            d.arc(arc, 0, 90, fill=WALL, width=3)   # swing
+            d.line([gap[0], gap[1], gap[2], gap[1]] if side in (0, 1)
+                   else [gap[0], gap[1], gap[0], gap[3]], fill=WALL, width=3)
+            add_box(gap, "Door")
+
+        for wside, wx, wy, color in windows:
+            if wside in (0, 1):
+                gap = [wx, wy - 5, wx + 70, wy + 5]
+            else:
+                gap = [wx - 5, wy, wx + 5, wy + 70]
+            gap = clamp_box(gap, W, H)
+            if not gap:
+                continue
+            d.rectangle(gap, fill=(252, 252, 252), outline=WALL, width=2)
+            if wside in (0, 1):
+                d.line([gap[0], (gap[1] + gap[3]) // 2, gap[2], (gap[1] + gap[3]) // 2],
+                       fill=WALL, width=1)
+            else:
+                d.line([(gap[0] + gap[2]) // 2, gap[1], (gap[0] + gap[2]) // 2, gap[3]],
+                       fill=WALL, width=1)
+            add_box(gap, "Window")
         svg.append("</svg>")
         open(f"{a.out}/svg/plan_{i:04d}.svg", "w").write("\n".join(svg))
         im.save(f"{a.out}/png/plan_{i:04d}.png")
