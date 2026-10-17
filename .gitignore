@@ -5,3 +5,5 @@ synth/
 data/*.jsonl
 ckpt*/
 *.log
+.harness/
+.harness/cache/
