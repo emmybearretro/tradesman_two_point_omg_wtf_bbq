@@ -87,7 +87,7 @@ class Stub(BaseHTTPRequestHandler):
             model_out = model
 
         fmt = (req.get("response_format") or {}).get("type")
-        if fmt in ("json_object", "json_schema"):
+        if fmt in ("json_object", "json_schema") or "matching this schema" in prompt:
             content = json.dumps({"category": "bug", "severity": "high", "echo": prompt})
         else:
             content = f"reply::{prompt}"
@@ -121,6 +121,7 @@ cache_dir = "__TMP__/cache"
 base_url = "__BASE__"
 default = true
 max_retries = 2
+schema_mode = "json_schema"
 
 [providers.strict]
 base_url = "__BASE__"
@@ -130,6 +131,10 @@ api_key = "sk-secret"
 [providers.hints]
 base_url = "__BASE__"
 models = ["declared-only"]
+
+[providers.prompter]
+base_url = "__BASE__"
+schema_mode = "prompt"
 
 [aliases]
 pair = ["stub/stub-a", "stub/stub-b"]
@@ -147,6 +152,18 @@ template = "T: {input}"
 schema = { type = "object", required = ["category", "severity"],
   properties = { category = { type = "string", enum = ["bug", "feature"] },
                  severity = { type = "string", enum = ["low", "med", "high"] } } }
+
+[jobs.typed-object]
+model = "hints/declared-only"
+format = "schema"
+schema = { type = "object", required = ["category"],
+  properties = { category = { type = "string", enum = ["bug", "feature"] } } }
+
+[jobs.typed-prompt]
+model = "prompter/stub-a"
+format = "schema"
+schema = { type = "object", required = ["category"],
+  properties = { category = { type = "string", enum = ["bug", "feature"] } } }
 
 [jobs.fallback]
 model = ["stub/stub-400", "stub/stub-b"]
@@ -287,6 +304,27 @@ class Chat(Base):
         self.assertTrue(fmt["json_schema"]["strict"])
         self.assertEqual(fmt["json_schema"]["schema"]["required"],
                          ["category", "severity"])
+
+    def test_schema_mode_json_object_sends_json_object(self):
+        r = self.h.run("typed-object", {"input": "x"}, use_cache=False)
+        self.assertTrue(r.ok, r.error)
+        self.assertEqual(r.parsed["category"], "bug")
+        self.assertEqual(CALLS[-1]["response_format"], {"type": "json_object"})
+
+    def test_schema_mode_prompt_sends_no_response_format(self):
+        r = self.h.run("typed-prompt", {"input": "x"}, use_cache=False)
+        self.assertTrue(r.ok, r.error)
+        self.assertEqual(r.parsed["category"], "bug")
+        self.assertIsNone(CALLS[-1]["response_format"])
+        self.assertIn("matching this schema", CALLS[-1]["prompt"])
+        self.assertIn('"required"', CALLS[-1]["prompt"])
+
+    def test_schema_mode_change_invalidates_cache(self):
+        self.h.run("typed", {"input": "x"}, use_cache=False)
+        self.assertEqual(CALLS[-1]["response_format"]["type"], "json_schema")
+        self.h.registry.providers["stub"].schema_mode = "json_object"
+        self.h.run("typed", {"input": "x"})
+        self.assertEqual(CALLS[-1]["response_format"]["type"], "json_object")
 
     def test_template_uses_item_fields(self):
         r = self.h.run("templated", {"field": "F", "input": "I"}, use_cache=False)

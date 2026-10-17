@@ -195,7 +195,11 @@ class Harness:
         return msgs
 
     def _params(self, job: JobCfg, prov) -> dict:
-        """Sampling params plus the response_format shape this provider accepts."""
+        """Sampling params plus the response_format shape this provider accepts.
+
+        `prompt` mode sends nothing on the wire: it is for endpoints that reject
+        structured-output fields outright.
+        """
         params = dict(job.params)
         if job.format == "schema" and job.schema:
             if prov.schema_mode == "json_schema":
@@ -205,7 +209,7 @@ class Harness:
                                     "strict": True,
                                     "schema": job.schema},
                 }
-            else:
+            elif prov.schema_mode == "json_object":
                 params["response_format"] = {"type": "json_object"}
         elif job.format == "json":
             params["response_format"] = {"type": "json_object"}

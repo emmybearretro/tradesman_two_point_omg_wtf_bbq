@@ -22,7 +22,11 @@ def load(ckpt, use_cuda):
     if use_cuda:
         m = m.cuda()
     m.eval()
-    return (m, AutoProcessor.from_pretrained(ckpt, trust_remote_code=True),
+    # Processor is never fine-tuned (weights + tokenizer are); ckpt dirs ship none.
+    # Always use base: a ckpt-loaded processor silently yields broken [1,1] inputs.
+    processor = AutoProcessor.from_pretrained("nvidia/NVIDIA-Nemotron-Parse-2.0",
+                                              trust_remote_code=True)
+    return (m, processor,
             AutoTokenizer.from_pretrained(ckpt, trust_remote_code=True),
             GenerationConfig.from_pretrained(ckpt, trust_remote_code=True))
 

@@ -19,7 +19,8 @@ def load_pipe(ckpt):
     from transformers import AutoModel, AutoProcessor, AutoTokenizer, GenerationConfig
     m = AutoModel.from_pretrained(ckpt, trust_remote_code=True,
                                   torch_dtype=torch.bfloat16).cuda().eval()
-    _pipe = (m, AutoProcessor.from_pretrained(ckpt, trust_remote_code=True),
+    _pipe = (m, AutoProcessor.from_pretrained("nvidia/NVIDIA-Nemotron-Parse-2.0",
+                                              trust_remote_code=True),  # ckpt ships weights only
              AutoTokenizer.from_pretrained(ckpt, trust_remote_code=True),
              GenerationConfig.from_pretrained(ckpt, trust_remote_code=True))
     return _pipe
