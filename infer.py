@@ -84,6 +84,9 @@ def main():
                     help="CPU encoder once, save hidden states (slow, offline, run before demo)")
     ap.add_argument("--enc-states", default=None, metavar="STATES.PT",
                     help="skip encoder, GPU-decode from dumped states (fast, demo path)")
+    ap.add_argument("--tile", type=int, default=0, metavar="PX",
+                    help="tile large sheets into readable crops (e.g. 1536); 0 = off")
+    ap.add_argument("--tile-overlap", type=int, default=192)
     a = ap.parse_args()
     use_cuda = torch.cuda.is_available() and not a.cpu
     print(f"device: {'cuda/fp16' if use_cuda else 'cpu/fp32'}")
@@ -106,15 +109,30 @@ def main():
         unload(pipe, use_cuda)
         return
     blob = torch.load(a.enc_states, map_location="cpu", weights_only=True) if a.enc_states else None
+    img = Image.open(a.image).convert("RGB")
+    dets = None
     try:
-        text = extract(pipe, Image.open(a.image), use_cuda, a.max_side, a.max_new_tokens, blob)
+        if a.tile or max(img.size) > a.max_side * 1.5:
+            # big sheet: read it in tiles at native resolution instead of shrinking the
+            # whole page until the dimension strings vanish
+            from tiles import run_tiled
+            from parse_out import parse as _parse
+            side = a.tile or a.max_side
+            dets = run_tiled(
+                lambda crop: _parse(extract(pipe, crop, use_cuda, side, a.max_new_tokens)),
+                img, tile=side, overlap=a.tile_overlap, verbose=True)
+            text = ""
+            print(f"tiled: {len(dets)} detections on {img.size[0]}x{img.size[1]}")
+        else:
+            text = extract(pipe, img, use_cuda, a.max_side, a.max_new_tokens, blob)
     finally:
         unload(pipe, use_cuda)             # model OUT (swap)
     print("raw:", text[:300])
 
     # real per-room boxes + dimension strings from the model's native token output
     from parse_out import parse
-    dets = parse(text)
+    if dets is None:
+        dets = parse(text)
     print(f"parsed {len(dets)} rooms")
     rows, tot = estimate_house(dets)
     with open(a.out, "w", newline="") as f:

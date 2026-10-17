@@ -97,11 +97,13 @@ def main():
     ap.add_argument("--batch", type=int, default=2)
     ap.add_argument("--grad-ckpt", type=int, default=1)
     ap.add_argument("--full", type=int, default=0, help="1: full fine-tune, skip PEFT (needs 40GB+ VRAM)")
+    ap.add_argument("--init", default="", help="start from this checkpoint instead of the base model")
     a = ap.parse_args()
 
     tok = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
     tok.add_tokens(NEW_TOKENS)
-    model = AutoModel.from_pretrained(MODEL_ID, trust_remote_code=True,
+    src = a.init or MODEL_ID
+    model = AutoModel.from_pretrained(src, trust_remote_code=True,
                                       torch_dtype=torch.bfloat16).cuda().train()
     if a.grad_ckpt:
         model.gradient_checkpointing_enable()

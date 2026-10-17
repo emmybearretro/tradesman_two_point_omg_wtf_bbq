@@ -9,6 +9,8 @@ CLASS_TOKENS = [
     "<class_Door>",
     "<class_Window>",
     "<class_Room>",
-    "<class_Dimension>",   # dimension strings / witness-line spans (ft-in reading)
 ]
+# NOTE: <class_Dimension> (dim-sheet stage) is deliberately NOT here yet: ckpt-v4 was
+# trained with these four ids, and adding a fifth now would shift the embedding rows and
+# break --init. Add it only together with a from-scratch run or a fresh embedding.
 CLASS_NAMES = [c[len("<class_"):-1] for c in CLASS_TOKENS]
