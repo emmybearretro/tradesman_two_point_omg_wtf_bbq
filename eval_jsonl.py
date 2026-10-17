@@ -32,7 +32,9 @@ def dims(s):
 
 def dims_close(a, b, tol=0.05):
     pa, pb = dims(a), dims(b)
-    return bool(pa and pb) and all(abs(x - y) <= tol * max(abs(y), 1e-6) for x, y in zip(pa, pb))
+    if pa is None or pb is None:
+        return False
+    return all(abs(x - y) <= tol * max(abs(y), 1e-6) for x, y in zip(pa, pb))
 
 
 def main():
