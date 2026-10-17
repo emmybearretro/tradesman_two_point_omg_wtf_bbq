@@ -93,11 +93,11 @@ class Provider:
         """POST /chat/completions with backoff on transient faults. Raises ProviderError."""
         params = params or {}
         payload = {"model": model, "messages": messages, "stream": stream}
+        payload.update(self.extra)                 # provider defaults first
         for key in ("temperature", "top_p", "max_tokens", "seed", "stop",
                     "presence_penalty", "frequency_penalty", "response_format", "user"):
             if params.get(key) is not None:
-                payload[key] = params[key]
-        payload.update(self.extra)
+                payload[key] = params[key]         # per-job params win
         payload.update(params.get("extra") or {})
 
         last: ProviderError | None = None

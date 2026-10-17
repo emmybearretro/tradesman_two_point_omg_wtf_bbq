@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import threading
 
 from . import __version__
 from .config import JobCfg, load
@@ -19,9 +21,10 @@ def _chain(h: Harness, job_name: str, override: str | None) -> str:
     job = h.cfg.jobs.get(job_name)
     spec = [override] if override else (job.model if job else [])
     try:
-        return " -> ".join(str(t) for t in h.registry.resolve(spec))
+        chain = h.registry.resolve(spec)
     except ValueError as e:
-        return f"UNRESOLVED ({e})"
+        return f"!! {e}"
+    return str(chain) + (f"  !! skipped: {'; '.join(chain.notes)}" if chain.notes else "")
 
 
 def _emit(res: Result, args) -> None:
@@ -149,16 +152,20 @@ def cmd_run(args) -> int:
     out = None
     path = args.out or f".harness/out/{args.job}-{stamp()}.jsonl"
     try:
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
         out = open(path, "w", encoding="utf-8")
     except OSError as e:
         print(f"cannot open {path}: {e}", file=sys.stderr)
         return 2
 
+    sink_lock = threading.Lock()
+
     def sink(res: Result) -> None:
-        out.write(json.dumps(res.record(), ensure_ascii=False) + "\n")
-        out.flush()
-        if not args.quiet:
-            _emit(res, args)
+        with sink_lock:                     # workers finish concurrently
+            out.write(json.dumps(res.record(), ensure_ascii=False) + "\n")
+            out.flush()
+            if not args.quiet:
+                _emit(res, args)
 
     results = h.run_job(args.job, items, stream=args.stream,
                         on_delta=(lambda d: sys.stdout.write(d)) if args.stream and len(items) == 1 else None,
@@ -212,6 +219,7 @@ def cmd_pipe(args) -> int:
 
     path = args.out or f".harness/out/{args.pipeline}-{stamp()}.jsonl"
     try:
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
         with open(path, "w", encoding="utf-8") as out:
             for row in rows:
                 out.write(json.dumps(row, ensure_ascii=False) + "\n")

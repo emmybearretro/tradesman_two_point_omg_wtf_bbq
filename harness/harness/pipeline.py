@@ -262,9 +262,10 @@ class Harness:
                                     "model": str(target), "usage": chat.usage})
             return res
 
+        notes = f" (skipped: {'; '.join(chain.notes)})" if chain.notes else ""
         return Result(job=job_name, index=index, key=key, ok=False,
                       target=tried[-1] if tried else None, tried=tried,
-                      error=last_err or "no model available")
+                      error=(last_err or "no model available") + notes)
 
     # ---- fan-out ---------------------------------------------------------
     def run_job(self, job_name: str, items, stream: bool = False,

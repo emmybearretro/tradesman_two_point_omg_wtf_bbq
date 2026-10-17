@@ -80,7 +80,7 @@ class PipelineCfg:
 
 @dataclass
 class Config:
-    path: Path | None
+    path: str
     providers: dict[str, ProviderCfg]
     aliases: dict[str, list[str]]
     jobs: dict[str, JobCfg]
@@ -204,7 +204,7 @@ def load(path: str | os.PathLike | None = None) -> Config:
             raise SystemExit(f"pipeline '{name}' references unknown job(s): {', '.join(missing)}")
 
     return Config(
-        path=chosen,
+        path=str(chosen),
         providers=providers,
         aliases=aliases,
         jobs=jobs,

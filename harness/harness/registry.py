@@ -91,21 +91,21 @@ class Registry:
             raw = raw.strip()
             if not raw:
                 continue
-            try:
-                for item in self._expand(raw):
-                    if item not in chain:
-                        chain.append(item)
-            except ValueError as e:
-                chain.notes.append(str(e))
+            for item in self._expand(raw, chain.notes):
+                if item not in chain:
+                    chain.append(item)
         if not chain:
             raise ValueError("; ".join(chain.notes) or f"model spec resolved to nothing: {spec!r}")
         return chain
 
-    def _expand(self, raw: str) -> list[Target]:
+    def _expand(self, raw: str, notes: list[str], seen: tuple = ()) -> list[Target]:
         if raw in self.aliases:
+            if raw in seen:
+                notes.append(f"alias cycle at {raw!r}")
+                return []
             expanded = []
             for alias_target in self.aliases[raw]:
-                expanded.extend(self._expand(alias_target))
+                expanded.extend(self._expand(alias_target, notes, seen + (raw,)))
             return expanded
         if not raw:
             return []
@@ -114,8 +114,9 @@ class Registry:
         if rest and head in self.providers:                       # provider-qualified
             prov = self.providers[head]
             if prov.strict and rest not in prov.listed:
-                raise ValueError(f"{head} is strict and does not serve {rest!r}; loaded: "
-                                 f"{', '.join(prov.listed) or 'none'}")
+                notes.append(f"{head} is strict and does not serve {rest!r}; loaded: "
+                             f"{', '.join(prov.listed) or 'none'}")
+                return []
             return [Target(head, rest, rest in prov.listed)]
 
         hits = [Target(name, raw, True) for name, prov in self.providers.items() if raw in prov.listed]
@@ -132,7 +133,8 @@ class Registry:
         # A bare id lands on the default provider; strictness applies there.
         default = self.cfg.default_provider
         if self.providers[default].strict:
-            raise ValueError(f"{default} is strict and does not serve {raw!r}; loaded: "
-                             f"{', '.join(self.providers[default].listed) or 'none'}")
+            notes.append(f"{default} is strict and does not serve {raw!r}; loaded: "
+                         f"{', '.join(self.providers[default].listed) or 'none'}")
+            return []
         # Models load lazily: an unlisted id is a real attempt, flagged for the operator.
         return [Target(default, raw, listed=False)]
